@@ -700,7 +700,8 @@ static int agent_method_passthrough_to_systemd(sd_bus_message *m, void *userdata
 
         int r = sd_bus_message_copy(req->message, m, true);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to copy a reply message: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m, SD_BUS_ERROR_FAILED, "Failed to copy a reply message: %s", strerror(-r));
         }
 
         if (!systemd_request_start(req, agent_method_passthrough_to_systemd_cb)) {
@@ -742,7 +743,10 @@ static int agent_method_list_units(sd_bus_message *m, void *userdata, UNUSED sd_
 
         _cleanup_systemd_request_ SystemdRequest *req = agent_create_request(agent, m, "ListUnits");
         if (req == NULL) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to create a systemd request for the ListUnits method");
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to create a systemd request for the ListUnits method");
         }
 
         if (!systemd_request_start(req, list_units_callback)) {
@@ -786,23 +790,34 @@ static int agent_method_get_unit_properties(sd_bus_message *m, void *userdata, U
 
         int r = sd_bus_message_read(m, "ss", &unit, &interface);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to read a message containing unit and interface: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to read a message containing unit and interface: %s",
+                                strerror(-r));
         }
 
         r = assemble_object_path_string(SYSTEMD_OBJECT_PATH "/unit", unit, &unit_path);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Out of memory");
+                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_NO_MEMORY, "OOM when assembling unit path");
         }
 
         _cleanup_systemd_request_ SystemdRequest *req = agent_create_request_full(
                         agent, m, unit_path, "org.freedesktop.DBus.Properties", "GetAll");
         if (req == NULL) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to create a systemd request for the GetAll method");
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to create a systemd request for the GetAll method");
         }
 
         r = sd_bus_message_append(req->message, "s", interface);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to append the interface to the message: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to append the interface to the message: %s",
+                                strerror(-r));
         }
 
         if (!systemd_request_start(req, get_unit_properties_got_properties)) {
@@ -847,23 +862,32 @@ static int agent_method_get_unit_property(sd_bus_message *m, void *userdata, UNU
 
         int r = sd_bus_message_read(m, "sss", &unit, &interface, &property);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to read a message containing unit, interface, and property: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to read a message containing unit, interface, and property: %s",
+                                strerror(-r));
         }
 
         r = assemble_object_path_string(SYSTEMD_OBJECT_PATH "/unit", unit, &unit_path);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Out of memory");
+                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_NO_MEMORY, "Out of memory");
         }
 
         _cleanup_systemd_request_ SystemdRequest *req = agent_create_request_full(
                         agent, m, unit_path, "org.freedesktop.DBus.Properties", "Get");
         if (req == NULL) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to create a systemd request for the Get method");
+                return sd_bus_reply_method_errorf(
+                                m, SD_BUS_ERROR_FAILED, "Failed to create a systemd request for the Get method");
         }
 
         r = sd_bus_message_append(req->message, "ss", interface, property);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to append interface and property to the message: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to append interface and property to the message: %s",
+                                strerror(-r));
         }
 
         if (!systemd_request_start(req, get_unit_property_got_property)) {
@@ -907,28 +931,40 @@ static int agent_method_set_unit_properties(sd_bus_message *m, void *userdata, U
 
         int r = sd_bus_message_read(m, "sb", &unit, &runtime);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to read a message containing unit and runtime: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to read a message containing unit and runtime: %s",
+                                strerror(-r));
         }
 
         r = assemble_object_path_string(SYSTEMD_OBJECT_PATH "/unit", unit, &unit_path);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Out of memory");
+                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_NO_MEMORY, "Out of memory");
         }
 
         _cleanup_systemd_request_ SystemdRequest *req = agent_create_request_full(
                         agent, m, unit_path, "org.freedesktop.systemd1.Unit", "SetProperties");
         if (req == NULL) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to create a systemd request for the SetProperties method");
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to create a systemd request for the SetProperties method");
         }
 
         r = sd_bus_message_append(req->message, "b", runtime);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to append a runtime to a message: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to append a runtime to a message: %s",
+                                strerror(-r));
         }
 
         r = sd_bus_message_copy(req->message, m, false);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to copy a message: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m, SD_BUS_ERROR_FAILED, "Failed to copy a message: %s", strerror(-r));
         }
 
         if (!systemd_request_start(req, set_unit_properties_cb)) {
@@ -971,18 +1007,22 @@ static int agent_method_freeze_unit(sd_bus_message *m, void *userdata, UNUSED sd
 
         int r = sd_bus_message_read(m, "s", &unit);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_INVALID_ARGS, "Invalid argument for the unit");
+                return sd_bus_reply_method_errorf(
+                                m, SD_BUS_ERROR_INVALID_ARGS, "Invalid argument for the unit");
         }
 
         r = assemble_object_path_string(SYSTEMD_OBJECT_PATH "/unit", unit, &unit_path);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Out of memory");
+                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_NO_MEMORY, "Out of memory");
         }
 
         _cleanup_systemd_request_ SystemdRequest *req = agent_create_request_full(
                         agent, m, unit_path, "org.freedesktop.systemd1.Unit", "Freeze");
         if (req == NULL) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to create a systemd request for the Freeze method");
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to create a systemd request for the Freeze method");
         }
 
         if (!systemd_request_start(req, freeze_unit_cb)) {
@@ -1025,18 +1065,22 @@ static int agent_method_thaw_unit(sd_bus_message *m, void *userdata, UNUSED sd_b
 
         int r = sd_bus_message_read(m, "s", &unit);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_INVALID_ARGS, "Invalid argument for the unit");
+                return sd_bus_reply_method_errorf(
+                                m, SD_BUS_ERROR_INVALID_ARGS, "Invalid argument for the unit");
         }
 
         r = assemble_object_path_string(SYSTEMD_OBJECT_PATH "/unit", unit, &unit_path);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Out of memory");
+                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_NO_MEMORY, "Out of memory");
         }
 
         _cleanup_systemd_request_ SystemdRequest *req = agent_create_request_full(
                         agent, m, unit_path, "org.freedesktop.systemd1.Unit", "Thaw");
         if (req == NULL) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to create a systemd request for the Thaw method");
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to create a systemd request for the Thaw method");
         }
 
         if (!systemd_request_start(req, thaw_unit_cb)) {
@@ -1086,10 +1130,11 @@ static int unit_lifecycle_method_callback(sd_bus_message *m, void *userdata, UNU
 
         int r = sd_bus_message_read(m, "o", &job_object_path);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(req->request_message, SD_BUS_ERROR_FAILED, 
-                        "Failed to read a message containing the object path of the job: %s", 
-                        strerror(-r)
-                );
+                return sd_bus_reply_method_errorf(
+                                req->request_message,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to read a message containing the object path of the job: %s",
+                                strerror(-r));
         }
 
         AgentJobOp *op = req->userdata;
@@ -1100,7 +1145,8 @@ static int unit_lifecycle_method_callback(sd_bus_message *m, void *userdata, UNU
                             agent_job_done,
                             agent_job_op_ref(op),
                             (free_func_t) agent_job_op_unref)) {
-                return sd_bus_reply_method_errorf(req->request_message, SD_BUS_ERROR_FAILED, "Failed to track a job");
+                return sd_bus_reply_method_errorf(
+                                req->request_message, SD_BUS_ERROR_FAILED, "Failed to track a job");
         }
 
         return sd_bus_reply_method_return(req->request_message, "");
@@ -1113,15 +1159,23 @@ static int agent_run_unit_lifecycle_method(sd_bus_message *m, Agent *agent, cons
 
         int r = sd_bus_message_read(m, "ssu", &name, &mode, &job_id);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_INVALID_ARGS, 
-                        "Failed to read a message containing name, mode, and job ID: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_INVALID_ARGS,
+                                "Failed to read a message containing name, mode, and job ID: %s",
+                                strerror(-r));
         }
 
         bc_log_infof("Request to %s unit: %s - Action: %s", method, name, mode);
 
         _cleanup_systemd_request_ SystemdRequest *req = agent_create_request(agent, m, method);
         if (req == NULL) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to create a systemd request for %s method: %s", method, strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to create a systemd request for %s method: %s",
+                                method,
+                                strerror(-r));
         }
 
         _cleanup_agent_job_op_ AgentJobOp *op = agent_job_new(agent, job_id, name, method);
@@ -1133,7 +1187,11 @@ static int agent_run_unit_lifecycle_method(sd_bus_message *m, Agent *agent, cons
 
         r = sd_bus_message_append(req->message, "ss", name, mode);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to append name and mode to the message: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to append name and mode to the message: %s",
+                                strerror(-r));
         }
 
         if (!systemd_request_start(req, unit_lifecycle_method_callback)) {
@@ -1235,7 +1293,8 @@ static int agent_method_subscribe(sd_bus_message *m, void *userdata, UNUSED sd_b
         const char *unit = NULL;
         int r = sd_bus_message_read(m, "s", &unit);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_INVALID_ARGS, "Invalid argument for the unit: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m, SD_BUS_ERROR_INVALID_ARGS, "Invalid argument for the unit: %s", strerror(-r));
         }
 
         if (is_wildcard(unit)) {
@@ -1283,7 +1342,8 @@ static int agent_method_unsubscribe(sd_bus_message *m, void *userdata, UNUSED sd
         const char *unit = NULL;
         int r = sd_bus_message_read(m, "s", &unit);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_INVALID_ARGS, "Invalid argument for the unit: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m, SD_BUS_ERROR_INVALID_ARGS, "Invalid argument for the unit: %s", strerror(-r));
         }
 
         if (is_wildcard(unit)) {
@@ -1333,7 +1393,8 @@ static int agent_method_start_dep(sd_bus_message *m, void *userdata, UNUSED sd_b
 
         int r = sd_bus_message_read(m, "s", &unit);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_INVALID_ARGS, "Invalid argument for the unit");
+                return sd_bus_reply_method_errorf(
+                                m, SD_BUS_ERROR_INVALID_ARGS, "Invalid argument for the unit");
         }
 
         _cleanup_free_ char *dep_unit = get_dep_unit(unit);
@@ -1345,13 +1406,19 @@ static int agent_method_start_dep(sd_bus_message *m, void *userdata, UNUSED sd_b
 
         _cleanup_systemd_request_ SystemdRequest *req = agent_create_request(agent, m, "StartUnit");
         if (req == NULL) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to create a systemd request for the StartUnit method");
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to create a systemd request for the StartUnit method");
         }
 
         r = sd_bus_message_append(req->message, "ss", dep_unit, "replace");
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, 
-                "Failed to append the dependency unit and the replace: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to append the dependency unit and the replace: %s",
+                                strerror(-r));
         }
 
         if (!systemd_request_start(req, start_dep_callback)) {
@@ -1380,7 +1447,8 @@ static int agent_method_stop_dep(sd_bus_message *m, void *userdata, UNUSED sd_bu
 
         int r = sd_bus_message_read(m, "s", &unit);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_INVALID_ARGS, "Invalid argument for the unit: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m, SD_BUS_ERROR_INVALID_ARGS, "Invalid argument for the unit: %s", strerror(-r));
         }
 
         _cleanup_free_ char *dep_unit = get_dep_unit(unit);
@@ -1392,13 +1460,19 @@ static int agent_method_stop_dep(sd_bus_message *m, void *userdata, UNUSED sd_bu
 
         _cleanup_systemd_request_ SystemdRequest *req = agent_create_request(agent, m, "StopUnit");
         if (req == NULL) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to create a systemd request for the StopUnit method");
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to create a systemd request for the StopUnit method");
         }
 
         r = sd_bus_message_append(req->message, "ss", dep_unit, "replace");
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, 
-                        "Failed to append the dependency unit and the replace: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to append the dependency unit and the replace: %s",
+                                strerror(-r));
         }
 
         if (!systemd_request_start(req, stop_dep_callback)) {
@@ -1553,8 +1627,11 @@ static int agent_method_create_proxy(UNUSED sd_bus_message *m, void *userdata, U
         const char *unit_name = NULL;
         int r = sd_bus_message_read(m, "sss", &local_service_name, &node_name, &unit_name);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_INVALID_ARGS, 
-                "Invalid argument for: local service name, node name, or unit name: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_INVALID_ARGS,
+                                "Invalid argument for: local service name, node name, or unit name: %s",
+                                strerror(-r));
         }
 
         bc_log_infof("CreateProxy request from %s", local_service_name);
@@ -1567,17 +1644,20 @@ static int agent_method_create_proxy(UNUSED sd_bus_message *m, void *userdata, U
         _cleanup_proxy_service_ ProxyService *proxy = proxy_service_new(
                         agent, local_service_name, node_name, unit_name, m);
         if (proxy == NULL) {
-                return sd_bus_reply_method_errorf(reply, SD_BUS_ERROR_FAILED, "Failed to create a proxy service");
+                return sd_bus_reply_method_errorf(
+                                reply, SD_BUS_ERROR_FAILED, "Failed to create a proxy service");
         }
 
         if (!proxy_service_export(proxy)) {
-                return sd_bus_reply_method_errorf(reply, SD_BUS_ERROR_FAILED, "Failed to export a proxy service");
+                return sd_bus_reply_method_errorf(
+                                reply, SD_BUS_ERROR_FAILED, "Failed to export a proxy service");
         }
 
         r = proxy_service_emit_proxy_new(proxy);
         if (r < 0 && r != -ENOTCONN) {
                 bc_log_errorf("Failed to emit ProxyNew signal: %s", strerror(-r));
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to emit a proxy service: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m, SD_BUS_ERROR_FAILED, "Failed to emit a proxy service: %s", strerror(-r));
         }
 
         LIST_APPEND(proxy_services, agent->proxy_services, proxy_service_ref(proxy));
@@ -1602,8 +1682,11 @@ static int agent_method_remove_proxy(sd_bus_message *m, UNUSED void *userdata, U
         const char *unit_name = NULL;
         int r = sd_bus_message_read(m, "sss", &local_service_name, &node_name, &unit_name);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_INVALID_ARGS, 
-                "Invalid argument for: local service name, node name, or unit name: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_INVALID_ARGS,
+                                "Invalid argument for: local service name, node name, or unit name: %s",
+                                strerror(-r));
         }
 
         bc_log_infof("RemoveProxy request from %s", local_service_name);

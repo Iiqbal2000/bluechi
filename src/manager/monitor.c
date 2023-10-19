@@ -233,7 +233,10 @@ static int monitor_method_subscribe(sd_bus_message *m, void *userdata, UNUSED sd
         int r = sd_bus_message_read(m, "ss", &node, &unit);
         if (r < 0) {
                 return sd_bus_reply_method_errorf(
-                                m, SD_BUS_ERROR_INVALID_ARGS, "Invalid argument for the node or the unit: %s", strerror(-r));
+                                m,
+                                SD_BUS_ERROR_INVALID_ARGS,
+                                "Invalid argument for the node or the unit: %s",
+                                strerror(-r));
         }
 
         _cleanup_subscription_ Subscription *sub = create_monitor_subscription(monitor, node);
@@ -268,7 +271,10 @@ static int monitor_method_subscribe_list(sd_bus_message *m, void *userdata, UNUS
         int r = sd_bus_message_read(m, "s", &node);
         if (r < 0) {
                 return sd_bus_reply_method_errorf(
-                                m, SD_BUS_ERROR_INVALID_ARGS, "Invalid argument for the node name: %s", strerror(-r));
+                                m,
+                                SD_BUS_ERROR_INVALID_ARGS,
+                                "Invalid argument for the node name: %s",
+                                strerror(-r));
         }
 
         _cleanup_subscription_ Subscription *sub = create_monitor_subscription(monitor, node);
@@ -282,7 +288,11 @@ static int monitor_method_subscribe_list(sd_bus_message *m, void *userdata, UNUS
 
         r = sd_bus_message_enter_container(m, SD_BUS_TYPE_ARRAY, "s");
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_INVALID_ARGS, "Invalid argument for an array of unit : %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_INVALID_ARGS,
+                                "Invalid argument for an array of unit : %s",
+                                strerror(-r));
         }
 
         while (sd_bus_message_at_end(m, false) == 0) {
@@ -307,7 +317,11 @@ static int monitor_method_subscribe_list(sd_bus_message *m, void *userdata, UNUS
 
         r = sd_bus_message_exit_container(m);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to exit message container while processing unit subscription: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to exit message container while processing unit subscription: %s",
+                                strerror(-r));
         }
 
         LIST_APPEND(subscriptions, monitor->subscriptions, subscription_ref(sub));
@@ -340,12 +354,16 @@ static int monitor_method_unsubscribe(sd_bus_message *m, void *userdata, UNUSED 
         int r = sd_bus_message_read(m, "u", &sub_id);
         if (r < 0) {
                 return sd_bus_reply_method_errorf(
-                                m, SD_BUS_ERROR_INVALID_ARGS, "Invalid arguments for the subscription ID: %s", strerror(-r));
+                                m,
+                                SD_BUS_ERROR_INVALID_ARGS,
+                                "Invalid arguments for the subscription ID: %s",
+                                strerror(-r));
         }
 
         Subscription *sub = monitor_find_subscription(monitor, sub_id);
         if (sub == NULL) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Subscription is not found: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m, SD_BUS_ERROR_FAILED, "Subscription is not found: %s", strerror(-r));
         }
 
         manager_remove_subscription(manager, sub);

@@ -77,8 +77,11 @@ static int proxy_service_method_target_state_changed(
         const char *reason = NULL;
         int r = sd_bus_message_read(m, "sss", &active_state_str, &substate, &reason);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_INVALID_ARGS, 
-                        "Invalid argument for: active state, substate, or reason: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_INVALID_ARGS,
+                                "Invalid argument for: active state, substate, or reason: %s",
+                                strerror(-r));
         }
 
         UnitActiveState active_state = active_state_from_string(active_state_str);
@@ -157,7 +160,11 @@ static int proxy_service_method_target_removed(sd_bus_message *m, void *userdata
         const char *reason = NULL;
         int r = sd_bus_message_read(m, "s", &reason);
         if (r < 0) {
-                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_INVALID_ARGS, "Invalid argument for the reason: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_INVALID_ARGS,
+                                "Invalid argument for the reason: %s",
+                                strerror(-r));
         }
 
         bc_log_debugf("Proxy service '%s' got TargetRemoved from manager: %s",

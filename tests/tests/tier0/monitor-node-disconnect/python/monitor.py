@@ -1,3 +1,6 @@
+#
+# Copyright Contributors to the Eclipse BlueChi project
+#
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import unittest
@@ -6,7 +9,7 @@ from dasbus.error import DBusError
 from dasbus.loop import EventLoop
 from dasbus.typing import Variant
 
-from bluechi.api import Manager, Node
+from bluechi.api import Controller, Node
 
 
 class TestNodeDisconnect(unittest.TestCase):
@@ -20,7 +23,7 @@ class TestNodeDisconnect(unittest.TestCase):
             self.node_state = state.get_string()
             loop.quit()
 
-        mgr = Manager()
+        mgr = Controller()
         nodes = mgr.list_nodes()
         if len(nodes) < 1:
             raise Exception("No connected node found")
@@ -39,7 +42,7 @@ class TestNodeDisconnect(unittest.TestCase):
         #   the command will be executed anyway, resulting in the desired shutdown of the node
         #   therefore, the DBusError is silenced for now, but all other errors are still raised
         try:
-            node.stop_unit('bluechi-agent.service', 'replace')
+            node.stop_unit("bluechi-agent.service", "replace")
         except DBusError:
             pass
 

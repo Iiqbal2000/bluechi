@@ -1,3 +1,6 @@
+#
+# Copyright Contributors to the Eclipse BlueChi project
+#
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 project(
@@ -33,12 +36,17 @@ endif
 
 # Set option to get coverage collection
 with_coverage = get_option('with_coverage')
-if with_coverage == 'true'
+if with_coverage
   add_project_arguments('-coverage', language : 'c')
   add_project_arguments(
-    '-fprofile-dir=' + join_paths(get_option('prefix'), get_option('localstatedir'), 'tmp', 'bluechi-coverage'), 
+    '-fprofile-dir=' + join_paths(get_option('prefix'), get_option('localstatedir'), 'tmp', 'bluechi-coverage'),
     language : 'c')
   add_project_link_arguments('-lgcov', language : 'c')
+
+  # Compiler should not perform any optimization when code coverage is reported, but meson RPM support sets -O2
+  # into CFLAGS, so we need to override here
+  common_cflags += '-Og'
+
   # Coverage source code mapping files `*.gcno` are created as a part of the build for each `*.c` file, but it's
   # very hard to tell meson to install files, which are created as a side effect from the build, so it's easier
   # to use custom install script
@@ -51,8 +59,15 @@ conf = configuration_data()
 # Enable GNU extensions.
 conf.set('_GNU_SOURCE', true)
 
+with_selinux = get_option('with_selinux')
+if with_selinux
+  selinux_dep = dependency('libselinux', required: true)
+  conf.set('CONFIG_H_USE_SELINUX', true)
+endif
+
 prefixdir = get_option('prefix')
 
+conf.set_quoted('CONFIG_H_UDS_SOCKET_PATH', get_option('unix_domain_socket_path'))
 conf.set_quoted('CONFIG_H_SYSCONFDIR', join_paths(prefixdir, get_option('sysconfdir')))
 conf.set_quoted('CONFIG_H_DATADIR', join_paths(prefixdir, get_option('datadir')))
 conf.set_quoted('CONFIG_H_BC_VERSION', run_command(
@@ -90,13 +105,16 @@ subdir('src/libbluechi')
 subdir('config')
 
 # selinux
-subdir('selinux')
+if with_selinux
+  subdir('selinux')
+endif
 
 # build each binary
-subdir('src/manager')
+subdir('src/controller')
 subdir('src/agent')
 subdir('src/client')
 subdir('src/proxy')
+subdir('src/is-online')
 
 # Subdirectory for the API description
 subdir('data')

@@ -1,21 +1,22 @@
+#
+# Copyright Contributors to the Eclipse BlueChi project
+#
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import unittest
 
 from dasbus.loop import EventLoop
 
-from bluechi.api import Manager, Monitor, Node
-
+from bluechi.api import Controller, Monitor, Node
 
 node_name_foo = "node-foo"
 service_simple = "simple.service"
 
 
 class TestUnsubscribe(unittest.TestCase):
-
     def setUp(self) -> None:
         self.loop = EventLoop()
-        self.mgr = Manager()
+        self.mgr = Controller()
         monitor_path = self.mgr.create_monitor()
         self.monitor = Monitor(monitor_path=monitor_path)
 
@@ -28,7 +29,9 @@ class TestUnsubscribe(unittest.TestCase):
             try:
                 self.monitor.unsubscribe(self.sub_id)
             except Exception as ex:
-                self.unsubscribe_ex = Exception(f"Failed to unsubscribe '{self.sub_id}', got exception: {ex}")
+                self.unsubscribe_ex = Exception(
+                    f"Failed to unsubscribe '{self.sub_id}', got exception: {ex}"
+                )
             self.loop.quit()
 
         self.monitor.on_unit_removed(on_unit_removed)

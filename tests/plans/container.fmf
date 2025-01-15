@@ -1,0 +1,34 @@
+summary: Running Integration Tests with containers
+discover:
+    how: fmf
+    filter: tier:0
+provision:
+    how: local
+environment:
+    BLUECHI_CTRL_HOST_PORT: 8420
+    BLUECHI_CTRL_SVC_PORT: 8420
+    BLUECHI_IMAGE_NAME: bluechi-image
+    CONTAINER_USED: integration-test-snapshot
+    INSTALL_DEPS: no
+    LOG_LEVEL: INFO
+    WITH_COVERAGE: 0
+    WITH_VALGRIND: 0
+prepare:
+    - name: Prepare containers setup
+      how: shell
+      script: |
+          ./scripts/tests-setup.sh setup_container_test
+execute:
+    how: tmt
+report:
+    how: junit
+finish:
+    - name: Create coverage report
+      how: shell
+      script: |
+           pytest -svv \
+               --confcutdir . \
+               --log-cli-level=${LOG_LEVEL} \
+               --log-cli-date-format="%Y-%m-%d %H:%M:%S%z" \
+               --log-cli-format="%(asctime)s,%(msecs)03d %(levelname)-7s [%(name)s] %(message)s (%(module)s:%(lineno)d)" \
+               scripts/create_coverage_report.py

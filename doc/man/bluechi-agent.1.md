@@ -10,7 +10,7 @@ bluechi-agent - Agent managing services on the local machine
 
 ## DESCRIPTION
 
-BlueChi is a systemd service controller intended for multi-node environment with a predefined number of nodes and with a focus on highly regulated environment such as those requiring functional safety (for example in cars).
+Eclipse BlueChi™ is a systemd service controller intended for multi-node environment with a predefined number of nodes and with a focus on highly regulated environment such as those requiring functional safety (for example in cars).
 
 A `bluechi-agent` establishes a peer-to-peer connection to `bluechi` and exposes its API to manage systemd units on it.
 
@@ -33,7 +33,7 @@ The port on which `bluechi` is listening for connection request and the `bluechi
 #### **--address**, **-a**
 
 DBus address used by `bluechi-agent` to connect to `bluechi`. See `man sd_bus_set_address` for its format.
-Overrides any setting of `ManagerHost` or `ManagerPort` defined in the configuration file as well as the respective CLI options.
+Overrides any setting of `ControllerHost` or `ControllerPort` defined in the configuration file as well as the respective CLI options.
 
 #### **--name**, **-n**
 

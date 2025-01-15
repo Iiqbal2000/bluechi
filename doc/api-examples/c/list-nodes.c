@@ -1,5 +1,8 @@
-// SPDX-License-Identifier: MIT-0
-
+/*
+ * Copyright Contributors to the Eclipse BlueChi project
+ *
+ * SPDX-License-Identifier: MIT-0
+ */
 #include <stdbool.h>
 #include <systemd/sd-bus.h>
 
@@ -20,7 +23,7 @@ int main() {
                         bus,
                         "org.eclipse.bluechi",
                         "/org/eclipse/bluechi",
-                        "org.eclipse.bluechi.Manager",
+                        "org.eclipse.bluechi.Controller",
                         "ListNodes",
                         &error,
                         &result,
@@ -32,7 +35,7 @@ int main() {
                 return r;
         }
 
-        r = sd_bus_message_enter_container(result, SD_BUS_TYPE_ARRAY, "(sos)");
+        r = sd_bus_message_enter_container(result, SD_BUS_TYPE_ARRAY, "(soss)");
         if (r < 0) {
                 fprintf(stderr, "Failed to open result array: %s\n", strerror(-r));
                 sd_bus_unref(bus);
@@ -44,8 +47,9 @@ int main() {
                 const char *name = NULL;
                 const char *path = NULL;
                 const char *state = NULL;
+                const char *ip = NULL;
 
-                r = sd_bus_message_read(result, "(sos)", &name, &path, &state);
+                r = sd_bus_message_read(result, "(soss)", &name, &path, &state, &ip);
                 if (r < 0) {
                         fprintf(stderr, "Failed to read node information: %s\n", strerror(-r));
                         sd_bus_unref(bus);

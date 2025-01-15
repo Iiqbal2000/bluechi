@@ -1,4 +1,5 @@
 <!-- markdownlint-disable-file MD013 -->
+
 # Generating BlueChi clients
 
 BlueChi provides [introspection data](https://dbus.freedesktop.org/doc/dbus-specification.html#introspection-format) for its public API. These XML files are located in the [data directory](https://github.com/eclipse-bluechi/bluechi/tree/main/data) of the project and can be also be used as input to generate clients.
@@ -37,8 +38,8 @@ git clone git@github.com:eclipse-bluechi/bluechi.git
 cd bluechi
 pip install -r src/bindings/generator/requirements.txt
 
-bash build-scripts/generate-bindings.sh python
-bash build-scripts/build-bindings.sh python
+./build-scripts/generate-bindings.sh python
+./build-scripts/build-bindings.sh python
 pip install src/bindings/python/dist/bluechi-0.6.0-py3-none-any.whl
 ```
 
@@ -49,7 +50,7 @@ The `bluechi` python package consists of two subpackages:
 - `api`: auto-generated code based the BlueChi D-BUS API description
 - `ext`: custom written code to simplify common tasks
 
-Functions from the auto-generated `api` subpackage reduce boilerplate code. It also removes the need to explicitly specify the D-Bus name, paths and interfaces and offers abstracted and easy to use functions. For example, lets compare the python code for listing all nodes.
+Functions from the auto-generated `api` subpackage reduce boilerplate code. It also removes the need to explicitly specify the D-Bus name, paths and interfaces and offers abstracted and easy to use functions. For example, let's compare the python code for listing all nodes.
 
 Using the auto-generated bindings, the code would look like this:
 
@@ -123,4 +124,10 @@ The following code snippets showcase more examples on how `bluechi` can be used.
 
 ```python
 --8<-- "bluechi-examples/MonitorAgentConnection.py"
+```
+
+#### Monitor system status
+
+```python
+--8<-- "bluechi-examples/MonitorSystemStatus.py"
 ```

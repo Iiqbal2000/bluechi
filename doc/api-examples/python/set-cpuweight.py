@@ -1,9 +1,14 @@
 #!/usr/bin/python3
+#
+# Copyright Contributors to the Eclipse BlueChi project
+#
 # SPDX-License-Identifier: MIT-0
 
 import sys
-from dasbus.typing import Variant
+
 import dasbus.connection
+from dasbus.typing import Variant
+
 bus = dasbus.connection.SystemMessageBus()
 
 if len(sys.argv) != 4:
@@ -17,8 +22,8 @@ value = int(sys.argv[3])
 # Don't persist change
 runtime = True
 
-manager = bus.get_proxy("org.eclipse.bluechi", "/org/eclipse/bluechi")
-node_path = manager.GetNode(node_name)
+controller = bus.get_proxy("org.eclipse.bluechi", "/org/eclipse/bluechi")
+node_path = controller.GetNode(node_name)
 node = bus.get_proxy("org.eclipse.bluechi", node_path)
 
 node.SetUnitProperties(unit_name, runtime, [("CPUWeight", Variant("t", value))])

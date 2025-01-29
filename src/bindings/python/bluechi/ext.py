@@ -1,3 +1,6 @@
+#
+# Copyright Contributors to the Eclipse BlueChi project
+#
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 from dasbus.connection import MessageBus
@@ -6,7 +9,7 @@ from collections import namedtuple
 from dasbus.loop import EventLoop
 from dasbus.typing import UInt32, ObjPath
 
-from bluechi.api import Node, Manager
+from bluechi.api import Node, Controller
 
 
 UnitInfo = namedtuple(
@@ -63,7 +66,7 @@ class Unit:
                 self.job_result = result
                 event_loop.quit()
 
-        Manager(bus=self.node.bus).on_job_removed(on_job_removed)
+        Controller(bus=self.node.bus).on_job_removed(on_job_removed)
 
         wait_for_job_path = operation(unit, "replace")
         event_loop.run()

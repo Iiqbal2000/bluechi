@@ -1,31 +1,38 @@
+#
+# Copyright Contributors to the Eclipse BlueChi project
+#
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import os
 from typing import Dict
 
+from bluechi_test.config import BluechiAgentConfig, BluechiControllerConfig
+from bluechi_test.machine import BluechiAgentMachine, BluechiControllerMachine
 from bluechi_test.test import BluechiTest
-from bluechi_test.container import BluechiControllerContainer, BluechiNodeContainer
-from bluechi_test.config import BluechiControllerConfig, BluechiNodeConfig
 
 node_foo_name = "node-foo"
 
 
-def start_agent_in_ctrl_container(ctrl: BluechiControllerContainer):
+def start_agent_in_ctrl_container(ctrl: BluechiControllerMachine):
     assert ctrl.wait_for_unit_state_to_be("bluechi-controller", "active")
 
-    node_foo_config = BluechiNodeConfig(
+    node_foo_config = BluechiAgentConfig(
         file_name="agent.conf",
         node_name=node_foo_name,
-        manager_host="localhost",
-        manager_port=ctrl.config.port,
+        controller_host="localhost",
+        controller_port=ctrl.config.port,
     )
-    ctrl.create_file(node_foo_config.get_confd_dir(), node_foo_config.file_name, node_foo_config.serialize())
+    ctrl.create_file(
+        node_foo_config.get_confd_dir(),
+        node_foo_config.file_name,
+        node_foo_config.serialize(),
+    )
     result, _, wait_result = ctrl.systemctl_start_and_wait("bluechi-agent", 1)
     assert result == 0
     assert wait_result
 
 
-def exec(ctrl: BluechiControllerContainer, nodes: Dict[str, BluechiNodeContainer]):
+def exec(ctrl: BluechiControllerMachine, nodes: Dict[str, BluechiAgentMachine]):
     start_agent_in_ctrl_container(ctrl)
 
     # bluechi-agent is running, check if it is connected in Agent
@@ -40,8 +47,8 @@ def exec(ctrl: BluechiControllerContainer, nodes: Dict[str, BluechiNodeContainer
 
 
 def test_monitor_agent_loses_connection(
-        bluechi_test: BluechiTest,
-        bluechi_ctrl_default_config: BluechiControllerConfig):
+    bluechi_test: BluechiTest, bluechi_ctrl_default_config: BluechiControllerConfig
+):
 
     bluechi_ctrl_default_config.allowed_node_names = [node_foo_name]
 

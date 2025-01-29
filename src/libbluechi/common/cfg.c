@@ -1,5 +1,8 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
-
+/*
+ * Copyright Contributors to the Eclipse BlueChi project
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
 #include <asm-generic/errno-base.h>
 #include <assert.h>
 #include <dirent.h>
@@ -16,6 +19,13 @@
 
 #include "cfg.h"
 #include "common.h"
+
+static inline void hashmap_freep(void *pmap) {
+        struct hashmap *map = *(struct hashmap **) pmap;
+        hashmap_free(map);
+}
+
+#define _cleanup_hashmap_ _cleanup_(hashmap_freep)
 
 /*
  * Structure holding the configuration is just hiding that it uses a hashmap structure internally
@@ -122,9 +132,11 @@ int cfg_load_complete_configuration(
                 struct config *config,
                 const char *default_config_file,
                 const char *custom_config_file,
-                const char *custom_config_directory) {
+                const char *custom_config_directory,
+                const char *cli_option_config_file) {
         int result = 0;
 
+        /* 1. Load default configuration file */
         if (default_config_file != NULL) {
                 result = cfg_load_from_file(config, default_config_file);
                 if (result < 0) {
@@ -142,6 +154,7 @@ int cfg_load_complete_configuration(
                 }
         }
 
+        /* 2. Load custom application configuration file, for example /etc/<NAME>.conf */
         if (custom_config_file != NULL) {
                 result = cfg_load_from_file(config, custom_config_file);
                 if (result != 0 && result != -ENOENT) {
@@ -161,6 +174,7 @@ int cfg_load_complete_configuration(
                 }
         }
 
+        /* 3. Load custom application configuration directory, for example /etc/<NAME>.conf.d */
         if (custom_config_directory != NULL) {
                 result = cfg_load_from_dir(config, custom_config_directory);
                 if (result < 0) {
@@ -175,7 +189,26 @@ int cfg_load_complete_configuration(
                 }
         }
 
+        /* 4. Load configuration from environment variables */
         result = cfg_load_from_env(config);
+
+        /* 5. Load custom application configuration file from CLI option parameter */
+        if (cli_option_config_file != NULL) {
+                result = cfg_load_from_file(config, cli_option_config_file);
+                if (result < 0) {
+                        fprintf(stderr,
+                                "Error loading configuration file '%s', error code '%s'.\n",
+                                cli_option_config_file,
+                                strerror(-result));
+                        return result;
+                } else if (result > 0) {
+                        fprintf(stderr,
+                                "Error parsing configuration file '%s' on line %d\n",
+                                cli_option_config_file,
+                                result);
+                        return -EINVAL;
+                }
+        }
 
         return result;
 }
@@ -206,10 +239,7 @@ int cfg_load_from_file(struct config *config, const char *config_file) {
 }
 
 int is_file_name_ending_with_conf(const struct dirent *entry) {
-        if (strstr(entry->d_name, ".conf") != NULL) {
-                return true;
-        }
-        return false;
+        return ends_with(entry->d_name, ".conf");
 }
 
 int cfg_load_from_dir(struct config *config, const char *custom_config_directory) {
@@ -328,7 +358,7 @@ int cfg_s_set_value(
         }
         struct config_option *replaced = (struct config_option *) hashmap_set(
                         config->cfg_store,
-                        &(struct config_option){
+                        &(struct config_option) {
                                         .section = section_copy, .name = name_copy, .value = value_copy });
         if (hashmap_oom(config->cfg_store)) {
                 free(section_copy);
@@ -352,8 +382,8 @@ const char *cfg_get_value(struct config *config, const char *option_name) {
 const char *cfg_s_get_value(struct config *config, const char *section_name, const char *option_name) {
         struct config_option *found = (struct config_option *) hashmap_get(
                         config->cfg_store,
-                        &(struct config_option){ .section = (char *) section_name,
-                                                 .name = (char *) option_name });
+                        &(struct config_option) { .section = (char *) section_name,
+                                                  .name = (char *) option_name });
         if (found != NULL) {
                 return found->value;
         }
@@ -375,83 +405,110 @@ bool cfg_s_get_bool_value(struct config *config, const char *section_name, const
         return result;
 }
 
+static int strp_compare(const void *a, const void *b, UNUSED void *udata) {
+        const char *a_str = *(const char **) a;
+        const char *b_str = *(const char **) b;
+
+        return strcmp(a_str, b_str);
+}
+
+static uint64_t strp_hash(const void *item, uint64_t seed0, uint64_t seed1) {
+        const char *str = *(const char **) item;
+        return hashmap_sip(str, strlen(str), seed0, seed1);
+}
+
+char **cfg_list_sections(struct config *config) {
+        _cleanup_hashmap_ struct hashmap *sections = hashmap_new(
+                        sizeof(char *), 0, 0, 0, strp_hash, strp_compare, NULL, 0);
+        if (sections == NULL) {
+                return NULL;
+        }
+
+        void *item = NULL;
+        size_t i = 0;
+
+        while (hashmap_iter(config->cfg_store, &i, &item)) {
+                struct config_option *opt = item;
+                if (!hashmap_get(sections, &opt->section)) {
+                        hashmap_set(sections, &opt->section);
+                        if (hashmap_oom(sections)) {
+                                return NULL;
+                        }
+                }
+        }
+
+        size_t n_sections = hashmap_count(sections);
+        _cleanup_freev_ char **res = calloc(n_sections + 1, sizeof(char *));
+        if (res == NULL) {
+                return NULL;
+        }
+
+        item = 0;
+        i = 0;
+        size_t n = 0;
+        while (hashmap_iter(sections, &i, &item)) {
+                char **section = item;
+                char *copy = strdup(*section);
+                if (copy == NULL) {
+                        return NULL;
+                }
+
+                res[n++] = copy;
+        }
+
+        qsort_r(res, n, sizeof(char *), strp_compare, NULL);
+
+        return steal_pointer(&res);
+}
+
 const char *cfg_dump(struct config *config) {
         if (config == NULL) {
                 return NULL;
         }
 
-        int r = 0;
-        char *cfg_info = "";
-        void *item = NULL;
-        size_t i = 0;
-        while (hashmap_iter(config->cfg_store, &i, &item)) {
-                struct config_option *opt = item;
-                char *tmp = cfg_info;
-                r = asprintf(&cfg_info, "%s%s=%s\n", cfg_info, opt->name, opt->value);
-                if (!streq(tmp, "")) {
-                        free(tmp);
+        _cleanup_freev_ char **sections = cfg_list_sections(config);
+        if (sections == NULL) {
+                return NULL;
+        }
+
+        _cleanup_string_builder_ StringBuilder builder = STRING_BUILDER_INIT;
+        if (!string_builder_init(&builder, 0)) {
+                return NULL;
+        }
+
+        for (size_t s = 0; sections != NULL && sections[s] != NULL; s++) {
+                const char *section = sections[s];
+
+                if (s != 0) {
+                        string_builder_append(&builder, "\n");
                 }
-                if (r < 0) {
+
+                if (!string_builder_printf(&builder, "[%s]\n", section)) {
+                        string_builder_destroy(&builder);
                         return NULL;
                 }
+
+                void *item = NULL;
+                size_t i = 0;
+                while (hashmap_iter(config->cfg_store, &i, &item)) {
+                        struct config_option *opt = item;
+
+                        if (!streq(opt->section, section)) {
+                                continue;
+                        }
+
+                        if (!string_builder_printf(
+                                            &builder, "%s=%s\n", opt->name, opt->value ? opt->value : "")) {
+                                string_builder_destroy(&builder);
+                                return NULL;
+                        }
+                }
         }
-        return cfg_info;
+        return steal_pointer(&builder.str);
 }
 
-int cfg_agent_def_conf(struct config *config) {
-        int result = cfg_set_default_section(config, CFG_SECT_AGENT);
-        if (result != 0) {
-                return result;
-        }
-
-        _cleanup_free_ char *default_node_name = get_hostname();
-        if ((result = cfg_set_value(config, CFG_NODE_NAME, default_node_name)) != 0) {
-                return result;
-        }
-
-        if ((result = cfg_set_value(config, CFG_MANAGER_HOST, BC_DEFAULT_HOST)) != 0) {
-                return result;
-        }
-
-        if ((result = cfg_set_value(config, CFG_HEARTBEAT_INTERVAL, AGENT_HEARTBEAT_INTERVAL_MSEC)) != 0) {
-                return result;
-        }
-
-        if ((result = cfg_set_value(config, CFG_MANAGER_PORT, BC_DEFAULT_PORT)) != 0) {
-                return result;
-        }
-
-        const char *LOG_LEVEL_INFO = "INFO";
-        if ((result = cfg_set_value(config, CFG_LOG_LEVEL, LOG_LEVEL_INFO)) != 0) {
-                return result;
-        }
-
-        if ((result = cfg_set_value(config, CFG_LOG_TARGET, BC_LOG_TARGET_JOURNALD)) != 0) {
-                return result;
-        }
-
-        if ((result = cfg_set_value(config, CFG_LOG_IS_QUIET, NULL)) != 0) {
-                return result;
-        }
-
-        return 0;
-}
-
-int cfg_manager_def_conf(struct config *config) {
+static int cfg_def_conf(struct config *config) {
         int result = 0;
-
-        result = cfg_set_default_section(config, CFG_SECT_BLUECHI);
-        if (result != 0) {
-                return result;
-        }
-
-        if ((result = cfg_set_value(config, CFG_MANAGER_PORT, BC_DEFAULT_PORT)) != 0) {
-                return result;
-        }
-
-        if ((result = cfg_set_value(config, CFG_ALLOWED_NODE_NAMES, "")) != 0) {
-                return result;
-        }
 
         if ((result = cfg_set_value(config, CFG_LOG_LEVEL, log_level_to_string(LOG_LEVEL_INFO))) != 0) {
                 return result;
@@ -462,6 +519,105 @@ int cfg_manager_def_conf(struct config *config) {
         }
 
         if ((result = cfg_set_value(config, CFG_LOG_IS_QUIET, NULL)) != 0) {
+                return result;
+        }
+
+        if ((result = cfg_set_value(config, CFG_IP_RECEIVE_ERRORS, BC_DEFAULT_IP_RECEIVE_ERROR)) != 0) {
+                return result;
+        }
+
+        if ((result = cfg_set_value(config, CFG_TCP_KEEPALIVE_TIME, BC_DEFAULT_TCP_KEEPALIVE_TIME)) != 0) {
+                return result;
+        }
+
+        if ((result = cfg_set_value(config, CFG_TCP_KEEPALIVE_INTERVAL, BC_DEFAULT_TCP_KEEPALIVE_INTERVAL)) !=
+            0) {
+                return result;
+        }
+
+        if ((result = cfg_set_value(config, CFG_TCP_KEEPALIVE_COUNT, BC_DEFAULT_TCP_KEEPALIVE_COUNT)) != 0) {
+                return result;
+        }
+
+        return 0;
+}
+
+int cfg_agent_def_conf(struct config *config) {
+        int result = cfg_set_default_section(config, CFG_SECT_AGENT);
+        if (result != 0) {
+                return result;
+        }
+
+        if ((result = cfg_def_conf(config)) != 0) {
+                return result;
+        }
+
+        _cleanup_free_ char *default_node_name = get_hostname();
+        if ((result = cfg_set_value(config, CFG_NODE_NAME, default_node_name)) != 0) {
+                return result;
+        }
+
+        if ((result = cfg_set_value(config, CFG_CONTROLLER_HOST, BC_DEFAULT_HOST)) != 0) {
+                return result;
+        }
+
+        if ((result = cfg_set_value(config, CFG_HEARTBEAT_INTERVAL, AGENT_DEFAULT_HEARTBEAT_INTERVAL_MSEC)) !=
+            0) {
+                return result;
+        }
+
+        if ((result = cfg_set_value(
+                             config,
+                             CFG_CONTROLLER_HEARTBEAT_THRESHOLD,
+                             AGENT_DEFAULT_CONTROLLER_HEARTBEAT_THRESHOLD_MSEC)) != 0) {
+                return result;
+        }
+
+        if ((result = cfg_set_value(config, CFG_CONTROLLER_PORT, BC_DEFAULT_PORT)) != 0) {
+                return result;
+        }
+
+        return 0;
+}
+
+int cfg_controller_def_conf(struct config *config) {
+        int result = 0;
+
+        result = cfg_set_default_section(config, CFG_SECT_BLUECHI);
+        if (result != 0) {
+                return result;
+        }
+
+        if ((result = cfg_def_conf(config)) != 0) {
+                return result;
+        }
+
+        if ((result = cfg_set_value(config, CFG_CONTROLLER_USE_TCP, CONTROLLER_DEFAULT_USE_TCP)) != 0) {
+                return result;
+        }
+
+        if ((result = cfg_set_value(config, CFG_CONTROLLER_USE_UDS, CONTROLLER_DEFAULT_USE_UDS)) != 0) {
+                return result;
+        }
+
+        if ((result = cfg_set_value(config, CFG_CONTROLLER_PORT, BC_DEFAULT_PORT)) != 0) {
+                return result;
+        }
+
+        if ((result = cfg_set_value(config, CFG_ALLOWED_NODE_NAMES, "")) != 0) {
+                return result;
+        }
+
+        if ((result = cfg_set_value(
+                             config, CFG_HEARTBEAT_INTERVAL, CONTROLLER_DEFAULT_HEARTBEAT_INTERVAL_MSEC)) !=
+            0) {
+                return result;
+        }
+
+        if ((result = cfg_set_value(
+                             config,
+                             CFG_NODE_HEARTBEAT_THRESHOLD,
+                             CONTROLLER_DEFAULT_NODE_HEARTBEAT_THRESHOLD_MSEC)) != 0) {
                 return result;
         }
 

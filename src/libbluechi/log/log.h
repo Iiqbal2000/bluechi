@@ -1,4 +1,8 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
+/*
+ * Copyright Contributors to the Eclipse BlueChi project
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
 #pragma once
 
 #include <stdbool.h>
@@ -30,6 +34,8 @@ typedef int (*LogFn)(
                 const char *func,
                 const char *msg,
                 const char *data);
+
+const char *log_target_to_str(LogFn logfn);
 
 int bc_log_to_journald_with_location(
                 LogLevel lvl,

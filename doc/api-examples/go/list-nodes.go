@@ -1,3 +1,5 @@
+// Copyright Contributors to the Eclipse BlueChi project
+//
 // SPDX-License-Identifier: MIT-0
 
 package main
@@ -12,7 +14,7 @@ import (
 const (
 	BcDusInterface  = "org.eclipse.bluechi"
 	BcObjectPath    = "/org/eclipse/bluechi"
-	MethodListNodes = "org.eclipse.bluechi.Manager.ListNodes"
+	MethodListNodes = "org.eclipse.bluechi.Controller.ListNodes"
 )
 
 func main() {

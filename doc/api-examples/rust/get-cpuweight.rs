@@ -1,3 +1,5 @@
+// Copyright Contributors to the Eclipse BlueChi project
+//
 // SPDX-License-Identifier: MIT-0
 
 use clap::Parser;
@@ -29,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let (node,): (Path,) =
-        bluechi.method_call("org.eclipse.bluechi.Manager", "GetNode", (args.node_name,))?;
+        bluechi.method_call("org.eclipse.bluechi.Controller", "GetNode", (args.node_name,))?;
 
     let node_proxy = conn.with_proxy("org.eclipse.bluechi", node, Duration::from_millis(5000));
 

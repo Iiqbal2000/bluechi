@@ -1,10 +1,15 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
+/*
+ * Copyright Contributors to the Eclipse BlueChi project
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
 #pragma once
 
 #include <stdint.h>
 #include <systemd/sd-bus.h>
 
 #include "libbluechi/common/common.h"
+#include "libbluechi/socket.h"
 
 /* return < 0 for error, 0 to continue, 1 to stop, 2 to continue and skip (if value was not consumed) */
 typedef int (*bus_property_cb)(const char *key, const char *value_type, sd_bus_message *m, void *userdata);
@@ -38,12 +43,32 @@ UnitInfo *unit_ref(UnitInfo *unit);
 void unit_unref(UnitInfo *unit);
 
 int bus_parse_unit_info(sd_bus_message *message, UnitInfo *u);
-int bus_parse_unit_on_node_info(sd_bus_message *message, UnitInfo *u);
 
-int bus_socket_set_no_delay(sd_bus *bus);
-int bus_socket_set_keepalive(sd_bus *bus);
+int bus_socket_set_options(sd_bus *bus, SocketOptions *opts);
+
+bool bus_id_is_valid(const char *name);
 
 int assemble_object_path_string(const char *prefix, const char *name, char **res);
 
 DEFINE_CLEANUP_FUNC(UnitInfo, unit_unref)
 #define _cleanup_unit_ _cleanup_(unit_unrefp)
+
+typedef struct UnitFileInfo UnitFileInfo;
+struct UnitFileInfo {
+        int ref_count;
+
+        char *node;
+        char *unit_path;
+        char *enablement_status;
+
+        LIST_FIELDS(UnitFileInfo, unit_files);
+};
+
+UnitFileInfo *new_unit_file();
+UnitFileInfo *unit_file_ref(UnitFileInfo *unit_file);
+void unit_file_unref(UnitFileInfo *unit_file);
+
+int bus_parse_unit_file_info(sd_bus_message *m, UnitFileInfo *unit_file);
+
+DEFINE_CLEANUP_FUNC(UnitFileInfo, unit_file_unref)
+#define _cleanup_unit_file_ _cleanup_(unit_file_unrefp)

@@ -1,5 +1,8 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
-
+/*
+ * Copyright Contributors to the Eclipse BlueChi project
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
 #pragma once
 
 #include <stdbool.h>
@@ -11,12 +14,22 @@
 #define CFG_LOG_LEVEL "LogLevel"
 #define CFG_LOG_TARGET "LogTarget"
 #define CFG_LOG_IS_QUIET "LogIsQuiet"
-#define CFG_MANAGER_HOST "ManagerHost"
-#define CFG_MANAGER_PORT "ManagerPort"
-#define CFG_MANAGER_ADDRESS "ManagerAddress"
+#define CFG_CONTROLLER_USE_TCP "UseTCP"
+#define CFG_CONTROLLER_USE_UDS "UseUDS"
+#define CFG_CONTROLLER_HOST "ControllerHost"
+#define CFG_CONTROLLER_PORT "ControllerPort"
+#define CFG_CONTROLLER_ADDRESS "ControllerAddress"
+#define CFG_ALLOWED "Allowed"
+#define CFG_REQUIRED_SELINUX_CONTEXT "RequiredSelinuxContext"
 #define CFG_NODE_NAME "NodeName"
 #define CFG_ALLOWED_NODE_NAMES "AllowedNodeNames"
 #define CFG_HEARTBEAT_INTERVAL "HeartbeatInterval"
+#define CFG_NODE_HEARTBEAT_THRESHOLD "NodeHeartbeatThreshold"
+#define CFG_CONTROLLER_HEARTBEAT_THRESHOLD "ControllerHeartbeatThreshold"
+#define CFG_IP_RECEIVE_ERRORS "IPReceiveErrors"
+#define CFG_TCP_KEEPALIVE_TIME "TCPKeepAliveTime"
+#define CFG_TCP_KEEPALIVE_INTERVAL "TCPKeepAliveInterval"
+#define CFG_TCP_KEEPALIVE_COUNT "TCPKeepAliveCount"
 
 /*
  * Global section - this is used, when configuration options are specified in the configuration file
@@ -25,9 +38,14 @@
 #define CFG_SECT_GLOBAL ""
 
 /*
- * Configuration section for bluechi manager.
+ * Configuration section for bluechi controller.
  */
 #define CFG_SECT_BLUECHI "bluechi-controller"
+
+/*
+ * Prefix of per-node configuration section for bluechi controller.
+ */
+#define CFG_SECT_NODE_PREFIX "node "
 
 /*
  * Configuration section for bluechi agent.
@@ -85,6 +103,7 @@ void cfg_dispose(struct config *config);
  *   2. Load custom application configuration file, for example /etc/<NAME>.conf
  *   3. Load custom application configuration directory, for example /etc/<NAME>.conf.d
  *   4. Load configuration from environment variables
+ *   5. Load custom application configuration file from CLI option parameter
  *
  * WARNING: this method should be invoked only once after execution of config_initialize() to ensure
  * standardized configuration loading flow is used.
@@ -95,7 +114,8 @@ int cfg_load_complete_configuration(
                 struct config *config,
                 const char *default_config_file,
                 const char *custom_config_file,
-                const char *custom_config_directory);
+                const char *custom_config_directory,
+                const char *cli_option_config_file);
 
 /*
  * Load the application configuration from the specified file and override any existing options values.
@@ -193,12 +213,14 @@ bool cfg_s_get_bool_value(struct config *config, const char *section, const char
  */
 const char *cfg_dump(struct config *config);
 
+char **cfg_list_sections(struct config *config);
+
 /*
  * Populate the default agent configuration from the source code
  */
 int cfg_agent_def_conf(struct config *config);
 
 /*
- * Populate the default manager configuration from the source code
+ * Populate the default controller configuration from the source code
  */
-int cfg_manager_def_conf(struct config *config);
+int cfg_controller_def_conf(struct config *config);

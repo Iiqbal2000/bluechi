@@ -1,4 +1,8 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
+/*
+ * Copyright Contributors to the Eclipse BlueChi project
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
 #include <errno.h>
 
 #include "libbluechi/common/common.h"
@@ -6,11 +10,29 @@
 
 #include "log.h"
 
-
-static const char * const log_level_strings[] = { "DEBUG", "INFO", "WARN", "ERROR" };
+#define NUM_LOGLEVEL 5
+static const char * const log_level_strings[NUM_LOGLEVEL] = { "DEBUG", "INFO", "WARN", "ERROR", "INVALID" };
 
 const char *log_level_to_string(LogLevel l) {
+        if (l < 0 || l > NUM_LOGLEVEL - 1) {
+                return log_level_strings[LOG_LEVEL_INVALID];
+        }
         return log_level_strings[l];
+}
+
+const char *log_target_to_str(LogFn logfn) {
+        const char *log_target = NULL;
+        if (bc_log_to_journald_with_location == logfn) {
+                log_target = BC_LOG_TARGET_JOURNALD;
+        }
+        if (bc_log_to_stderr_full_with_location == logfn) {
+                log_target = BC_LOG_TARGET_STDERR_FULL;
+        }
+        if (bc_log_to_stderr_with_location == logfn) {
+                log_target = BC_LOG_TARGET_STDERR;
+        }
+
+        return log_target;
 }
 
 LogLevel string_to_log_level(const char *l) {

@@ -1,4 +1,8 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
+/*
+ * Copyright Contributors to the Eclipse BlueChi project
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -58,6 +62,46 @@ bool test_parse_port(const char *input, bool expected_return, uint16_t expected_
         return true;
 }
 
+bool test_parse_linux_signal(const char *input, bool expected_return, uint32_t expected_result) {
+        _cleanup_free_ char *msg = NULL;
+
+        uint32_t res = 0;
+        bool ret = parse_linux_signal(input, &res);
+        if ((ret != expected_return) || (res != expected_result)) {
+                ret = asprintf(&msg,
+                               "FAILED: %s\n\tInput: '%s'\n\tExpected: Return=%d, Result=%d\n\tGot: Return=%d, Result=%d\n",
+                               __FUNCTION_NAME__,
+                               input,
+                               expected_return,
+                               expected_result,
+                               ret,
+                               res);
+        }
+
+        if (msg != NULL) {
+                fprintf(stderr, "%s", msg);
+                return false;
+        }
+        return true;
+}
+
+bool test_parse_selinux_type(const char *input, const char *expected_return) {
+        _cleanup_free_ char *msg = NULL;
+        _cleanup_free_ char *res = parse_selinux_type(input);
+        if ((expected_return == NULL && res != NULL) ||
+            (expected_return != NULL && (res == NULL || !streq(expected_return, res)))) {
+                fprintf(stderr,
+                        "FAILED: %s\n\tInput: '%s'\n\tExpected: %s\n\tGot: %s\n",
+                        __FUNCTION_NAME__,
+                        input,
+                        expected_return,
+                        res);
+                return false;
+        }
+
+        return true;
+}
+
 int main() {
         bool result = true;
 
@@ -80,6 +124,22 @@ int main() {
         result = result && test_parse_port("-2", false, 0);
         result = result && test_parse_port("65.536", false, 0);
 
+        result = result && test_parse_linux_signal(NULL, false, 0);
+        result = result && test_parse_linux_signal("", false, 0);
+        result = result && test_parse_linux_signal("foo", false, 0);
+        result = result && test_parse_linux_signal("0", false, 0);
+        result = result && test_parse_linux_signal("1", true, 1);
+        result = result && test_parse_linux_signal("15", true, 15);
+        result = result && test_parse_linux_signal("31", true, 31);
+        result = result && test_parse_linux_signal("32", false, 0);
+        result = result && test_parse_linux_signal("-2", false, 0);
+        result = result && test_parse_linux_signal("65.536", false, 0);
+
+        result = result &&
+                        test_parse_selinux_type(
+                                        "unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023",
+                                        "unconfined_t");
+        result = result && test_parse_selinux_type("unconfined_u:unconfined_r", NULL);
 
         if (!result) {
                 return EXIT_FAILURE;

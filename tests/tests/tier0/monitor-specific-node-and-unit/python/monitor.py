@@ -1,10 +1,13 @@
+#
+# Copyright Contributors to the Eclipse BlueChi project
+#
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import unittest
 
 from dasbus.loop import EventLoop
 
-from bluechi.api import Manager, Monitor, Node, Structure
+from bluechi.api import Controller, Monitor, Node, Structure
 
 node_name_foo = "node-foo"
 
@@ -12,10 +15,9 @@ service_simple = "simple.service"
 
 
 class TestMonitorSpecificNodeAndUnit(unittest.TestCase):
-
     def setUp(self) -> None:
         self.loop = EventLoop()
-        self.mgr = Manager()
+        self.mgr = Controller()
 
         self.times_new_called = 0
         self.times_state_changed_called = 0
@@ -30,10 +32,14 @@ class TestMonitorSpecificNodeAndUnit(unittest.TestCase):
         def on_unit_new(node: str, unit: str, reason: str) -> None:
             self.times_new_called += 1
 
-        def on_unit_state_changed(node: str, unit: str, active_state: str, sub_state: str, reason: str) -> None:
+        def on_unit_state_changed(
+            node: str, unit: str, active_state: str, sub_state: str, reason: str
+        ) -> None:
             self.times_state_changed_called += 1
 
-        def on_unit_property_changed(node: str, unit: str, interface: str, props: Structure) -> None:
+        def on_unit_property_changed(
+            node: str, unit: str, interface: str, props: Structure
+        ) -> None:
             self.times_prop_changed_called += 1
 
         def on_unit_removed(node: str, unit: str, reason: str) -> None:

@@ -1,4 +1,6 @@
+#
 # Copyright 2022 Collabora Ltd.
+#
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 custom_target(
@@ -19,10 +21,3 @@ install_data(
   'bluechi.if',
   install_dir : join_paths(get_option('datadir'), 'selinux', 'devel', 'include', 'services'),
 )
-
-install_data(
-  ['bluechi_agent_selinux.8', 'bluechi_controller_selinux.8'],
-  install_dir : join_paths(get_option('mandir'), ('man8')),
-)
-
-

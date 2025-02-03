@@ -1,9 +1,9 @@
-<!-- markdownlint-disable-file MD010 MD013 MD014 MD024 MD033 MD046 -->
+<!-- markdownlint-disable-file MD010 MD013 MD014 MD024 MD033 MD034 MD046 -->
 # Proxy Services
 
 The `bluechi-agent` component also includes two systemd template services, `bluechi-proxy@.service` and `bluechi-dep@.service`, which are the core of the proxy service mechanism to resolve cross-node dependencies. Consider the following example:
 
-![structure](../img/bluechi_proxy_service_multi_node.png)
+![structure](../assets/img/bluechi_proxy_service_multi_node.png)
 
 The `producer.service` depends on the `mqtt.service` running on a different node. In a single node setup, systemd unit mechanisms like `Wants` would be sufficient to define such a relationship. Based on BlueChi's proxy service feature the same systemd keywords can be used to express this dependency - with a small addition:
 
@@ -43,7 +43,7 @@ In addition, when the last dependency of the proxy service on a node exits, the 
 
 Based on the described example, the following diagram visualizes the architecture of the BlueChi proxy services:
 
-![BlueChi-Proxy Architecture diagram](../img/bluechi_proxy_architecture.png)
+![BlueChi-Proxy Architecture diagram](../assets/img/bluechi_proxy_architecture.png)
 
 ## Limitations
 
@@ -87,11 +87,11 @@ The dependency used for the dep service is `BindsTo` and `After`, which is a ver
 
 ## Implementation Details
 
-Tracking service state across multiple nodes is very tricky, as the state can diverge due to disconnects, delays, or races. To minimize such problems most state and intelligence is kept in the agent. Whenever the agent registers a new proxy it will announce this to the manager (if connected), and this will start a one-directional flow of non-interpreted state-change events from the target service to the manager to the agent, until the agent explicitly removes the proxy.
+Tracking service state across multiple nodes is very tricky, as the state can diverge due to disconnects, delays, or races. To minimize such problems most state and intelligence is kept in the agent. Whenever the agent registers a new proxy it will announce this to the controller (if connected), and this will start a one-directional flow of non-interpreted state-change events from the target service to the controller to the agent, until the agent explicitly removes the proxy.
 
-If an agent is disconnected from the manager, then the manager treats that as if the agent removed the proxy. On re-connection the agent will re-send the registering of the proxy.
+If an agent is disconnected from the controller, then the controller treats that as if the agent removed the proxy. On re-connection the agent will re-send the registering of the proxy.
 
-In addition to the monitoring, each time a proxy is registered the manager will tell the target node to start the dep service for the target service. BlueChi keeps track of how many proxies are outstanding for the target service and only tell the agent to stop the dep service when this reaches zero. Similar to the above, when the target node reconnect we re-sent starts for any outstanding proxies.
+In addition to the monitoring, each time a proxy is registered the controller will tell the target node to start the dep service for the target service. BlueChi keeps track of how many proxies are outstanding for the target service and only tell the agent to stop the dep service when this reaches zero. Similar to the above, when the target node reconnect we re-sent starts for any outstanding proxies.
 
 !!! Note
 

@@ -1,3 +1,5 @@
+// Copyright Contributors to the Eclipse BlueChi project
+//
 // SPDX-License-Identifier: MIT-0
 
 use clap::Parser;
@@ -137,7 +139,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let (monitor,): (Path,) =
-        bluechi.method_call("org.eclipse.bluechi.Manager", "CreateMonitor", ())?;
+        bluechi.method_call("org.eclipse.bluechi.Controller", "CreateMonitor", ())?;
     let monitor_proxy =
         conn.with_proxy("org.eclipse.bluechi", monitor, Duration::from_millis(5000));
 

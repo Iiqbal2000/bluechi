@@ -1,3 +1,5 @@
+// Copyright Contributors to the Eclipse BlueChi project
+//
 // SPDX-License-Identifier: MIT-0
 
 package main
@@ -12,7 +14,7 @@ import (
 const (
 	BcDusInterface        = "org.eclipse.bluechi"
 	BcObjectPath          = "/org/eclipse/bluechi"
-	MethodGetNode         = "org.eclipse.bluechi.Manager.GetNode"
+	MethodGetNode         = "org.eclipse.bluechi.Controller.GetNode"
 	MethodGetUnitProperty = "org.eclipse.bluechi.Node.GetUnitProperty"
 )
 

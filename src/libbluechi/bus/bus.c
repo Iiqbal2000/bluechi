@@ -1,4 +1,8 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
+/*
+ * Copyright Contributors to the Eclipse BlueChi project
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
 #include <arpa/inet.h>
 #include <errno.h>
 
@@ -73,13 +77,14 @@ sd_bus *peer_bus_open(sd_event *event, const char *dbus_description, const char 
 
 int peer_bus_close(sd_bus *peer_dbus) {
         if (peer_dbus != NULL) {
+                bc_log_debug("Closing peer bus");
                 int r = sd_bus_detach_event(peer_dbus);
                 if (r < 0) {
                         bc_log_errorf("Failed to detach bus from event: %s", strerror(-r));
                         return r;
                 }
 
-                sd_bus_flush_close_unref(peer_dbus);
+                sd_bus_close_unref(peer_dbus);
         }
 
         return 0;
@@ -287,4 +292,50 @@ sd_bus *user_bus_open(sd_event *event) {
         bc_log_debug("Connected to user bus");
 
         return steal_pointer(&bus);
+}
+
+
+int get_peer_ip_address(sd_bus *bus, char **ret_address, uint16_t *ret_port) {
+        int fd = sd_bus_get_fd(bus);
+        if (fd < 0) {
+                bc_log_errorf("Failed to get file descriptor from bus: %s", strerror(-fd));
+                return fd;
+        }
+
+        if (!fd_is_socket_tcp(fd)) {
+                return -EINVAL;
+        }
+
+        struct sockaddr_storage addr = { 0 };
+        socklen_t len = sizeof(addr);
+        int r = getpeername(fd, (struct sockaddr *) &addr, &len);
+        if (r < 0) {
+                bc_log_errorf("Failed to get peer ip address: %s", strerror(errno));
+                return -errno;
+        }
+
+        if (addr.ss_family == AF_INET) {
+                struct sockaddr_in *s = (struct sockaddr_in *) &addr;
+
+                if (ret_address != NULL) {
+                        *ret_address = typesafe_inet_ntop4(s);
+                }
+                if (ret_port != NULL) {
+                        *ret_port = ntohs(s->sin_port);
+                }
+        } else if (addr.ss_family == AF_INET6) {
+                struct sockaddr_in6 *s = (struct sockaddr_in6 *) &addr;
+
+                if (ret_address != NULL) {
+                        *ret_address = typesafe_inet_ntop6(s);
+                }
+                if (ret_port != NULL) {
+                        *ret_port = ntohs(s->sin6_port);
+                }
+        } else {
+                bc_log_errorf("Invalid address family: %u", (unsigned int) addr.ss_family);
+                return -EINVAL;
+        }
+
+        return 0;
 }

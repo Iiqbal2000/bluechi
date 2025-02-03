@@ -1,0 +1,12 @@
+
+class Controller(ApiBase):
+    """
+    {{ iface_doc }}
+    """
+    
+    def __init__(self, bus: MessageBus = None, use_systembus=True) -> None:
+        super().__init__(BC_DBUS_INTERFACE, BC_OBJECT_PATH, bus, use_systembus)
+
+    {% include 'skeleton_method.tmpl' %}
+    {% include 'skeleton_signal.tmpl' %}
+    {% include 'skeleton_property.tmpl' %}

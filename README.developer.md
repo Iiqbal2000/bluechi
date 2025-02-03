@@ -1,9 +1,8 @@
-
-# BlueChi
+# Eclipse BlueChi&trade;
 
 - [Development](#development)
-  - [Environment Setup](#environment-setup)
-    - [Prerequisites](#prerequisites)
+  - [Environment Setup (Fedora / CentOS Stream)](#environment-setup)
+    - [Prerequisites (CentOS Stream only)](#prerequisites)
     - [Dependencies Installation](#dependencies-installation)
   - [Busctl](#busctl)
   - [Code Style](#code-style)
@@ -23,16 +22,18 @@
 - [Documentation](#documentation)
   - [Building MAN Pages](#building-man-pages)
 - [Packaging](#packaging)
+  - [RPM](#rpm)
+  - [DEB](#deb)
 
 ## Development
 
-### Environment Setup
+### Environment Setup (Fedora / CentOS Stream) {#environment-setup}
 
-In order to develop the project you need to install following dependencies.
+In order to develop the project on Fedora or CentOS Stream you need to install following dependencies.
 
-#### Prerequisites
+#### Prerequisites (CentOS Stream only) {#prerequisites}
 
-To build the project on CentOS Stream 9 you need to enable CodeReady Build repository:
+To build the project on CentOS Stream you need to enable CodeReady Build and EPEL repositories:
 
 ```bash
 sudo dnf install dnf-plugin-config-manager
@@ -72,7 +73,7 @@ of installation for your setup.
          /org/eclipse/bluechi
 
 NAME                                TYPE      SIGNATURE RESULT/VALUE   FLAGS
-org.eclipse.bluechi.Manager         interface -         -              -
+org.eclipse.bluechi.Controller         interface -         -              -
 .CreateMonitor                      method    -         o              -
 .DisableMetrics                     method    -         -              -
 .EnableMetrics                      method    -         -              -
@@ -83,8 +84,6 @@ org.eclipse.bluechi.Manager         interface -         -              -
 .SetLogLevel                        method    s         -              -
 .JobNew                             signal    uo        -              -
 .JobRemoved                         signal    uosss     -              -
-org.eclipse.bluechi.Shutdown        interface -         -              -
-.Shutdown                           method    -         -              -
 org.freedesktop.DBus.Introspectable interface -         -              -
 .Introspect                         method    -         s              -
 org.freedesktop.DBus.Peer           interface -         -              -
@@ -102,7 +101,7 @@ org.freedesktop.DBus.Properties     interface -         -              -
 ```bash
 export SERVICE="org.eclipse.bluechi"
 export OBJECT="/org/eclipse/bluechi"
-export INTERFACE="org.eclipse.bluechi.Manager"
+export INTERFACE="org.eclipse.bluechi.Controller"
 export METHOD="ListNodes"
 
 # busctl call \
@@ -193,13 +192,15 @@ those settings can either be changed directly in the file or via
 
 ```bash
 # assuming an initial "meson setup builddir"
-meson configure -D<option-name>=<option-value>
+meson configure -D<option-name>=<option-value> builddir
 ```
 
 Current options include:
 
-- `with_coverage`: This option ensures that BlueChi is built to collect coverage when running a BlueChi binary
 - `with_analyzer`: This option enables the [gcc option for static analysis](https://gcc.gnu.org/onlinedocs/gcc-13.2.0/gcc/Static-Analyzer-Options.html)
+- `with_coverage`: This option ensures that BlueChi is built to collect coverage when running a BlueChi binary
+- `with_man_pages`: This option enables building man pages as a part of the project build
+- `with_selinux`: This option includes building the SELinux policy for BlueChi
 
 #### Bindings
 
@@ -210,7 +211,7 @@ A complete set of typed python bindings for the D-Bus API is auto-generated. On 
 these need to be re-generated via
 
 ```bash
-bash build-scripts/generate-bindings.sh python
+./build-scripts/generate-bindings.sh python
 ```
 
 ### Static Code Analysis
@@ -223,7 +224,7 @@ meson configure -Dwith_analyzer=true builddir
 ```
 
 Since the result of the analysis is heavily dependent on the compiler version, flags, etc., its recommended to build
-and run tests for BlueChi also in the [build-base](./tests/containers/build-base):
+and run tests for BlueChi also in the [build-base](./containers/build-base):
 
 ```bash
 # navigate into the bluechi directory
@@ -334,9 +335,9 @@ The newly built `bluechictl` can be used via:
 Files for documentation of this project are located in the [doc](./doc/) directory comprising:
 
 - [api examples](./doc/api-examples/): directory containing source files for different programming languages that use
-the D-Bus API of BlueChi, e.g. for starting a systemd unit
+  the D-Bus API of BlueChi, e.g. for starting a systemd unit
 - [man](./doc/man/): directory containing the markdown files for generating the man pages
-(see [Building MAN pages](#building-man-pages) for more information)
+  (see [Building MAN pages](#building-man-pages) for more information)
 - readthedocs files for building the documentation website of BlueChi (see [the README](./doc/README.md) for further information)
 - [diagrams.drawio](./doc/diagrams.drawio) file containing all diagrams used for BlueChi
 
@@ -353,7 +354,9 @@ After executing a `meson install` the MAN pages are located in the `man/man*` di
 
 ## Packaging
 
-BlueChi is packaged as an RPM. To build RPM packages following additional dependencies are required:
+### RPM
+
+In order to package BlueChi as an RPM the following dependencies are required:
 
 ```bash
 sudo dnf install \
@@ -377,9 +380,9 @@ The package build process can be adjusted using following environment variables:
 - `SKIP_BUILDDEP`
   - To skip installation of build dependencies this option should contain `yes` value.
 - `WITH_PYTHON`
-  - To skip building python bluechi modules this option should contain `0`.
+  - To skip building python bluechi modules this option should contain `0`. Default: `1`.
 - `WITH_COVERAGE`
-  - To start collecting coverage this option should contain `1`.
+  - To start collecting coverage this option should contain `1`. Default: `0`.
 
 So for example following command will skip build dependencies installation and store create RPM packages into `output`
 subdirectory:
@@ -387,3 +390,7 @@ subdirectory:
 ```bash
 SKIP_BUILDDEP=yes ARTIFACTS_DIR=${PWD}/output ./build-scripts/build-rpm.sh
 ```
+
+### DEB
+
+Creating the BlueChi `.deb` package is described in the [debian/README.md](./debian/README.md).

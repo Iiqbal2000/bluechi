@@ -22,17 +22,17 @@ by `bluechi-agent`.
 
 The unique name of this agent. The option defaults to the system's hostname.
 
-#### **ManagerAddress** (string)
+#### **ControllerAddress** (string)
 
 SD Bus address used by `bluechi-agent` to connect to `bluechi`. See `man sd_bus_set_address` for its format.
-Overrides any setting of `ManagerHost` or `ManagerPort` defined in the configuration file as well as the respective CLI
+Overrides any setting of `ControllerHost` or `ControllerPort` defined in the configuration file as well as the respective CLI
 options. The option doesn't have a default value.
 
-#### **ManagerHost** (string)
+#### **ControllerHost** (string)
 
-The host used by `bluechi-agent` to connect to `bluechi`. Must be a valid IPv4 or IPv6. ManagerHost defaults to localhost 127.0.0.1. It's mandatory to set this field if the bluechi agent is on a remote system.
+The host used by `bluechi-agent` to connect to `bluechi`. Must be a valid IPv4 or IPv6. ControllerHost defaults to localhost 127.0.0.1. It's mandatory to set this field if the bluechi agent is on a remote system.
 
-#### **ManagerPort** (uint16_t)
+#### **ControllerPort** (uint16_t)
 
 The port on which `bluechi` is listening for connection request and the `bluechi-agent` is connecting to. By default port
 `842` is used.
@@ -40,6 +40,10 @@ The port on which `bluechi` is listening for connection request and the `bluechi
 #### **HeartbeatInterval** (long)
 
 The interval between two heartbeat signals sent to bluechi in milliseconds. If an agent is not connected, it will retry to connect on each heartbeat. Setting this options to values smaller or equal to 0 disables it. This option will overwrite the heartbeat interval defined in the configuration file.
+
+#### **ControllerHeartbeatThreshold** (long)
+
+The threshold in milliseconds to determine whether a bluechi agent is disconnected. If the controller's last heartbeat signal was received before this threshold, bluechi agent assumes that the controller is down or the connection was cut off and performs a disconnect.
 
 #### **LogLevel** (string)
 
@@ -66,26 +70,54 @@ By default `journald` is used as the target.
 
 If this flag is set to `true`, no logs are written by bluechi. By default the flag is set to `false`.
 
+#### **IPReceiveErrors** (string)
+
+If this flag is set to `true`, it enables extended, reliable error message passing for
+the peer connection with the controller. This results in BlueChi receiving errors such as
+host unreachable ICMP packets instantly and possibly dropping the connection. This is
+useful to detect disconnects faster, but should be used with care as this might cause
+unnecessary disconnects in less robut networks.
+Default: true.
+
+#### **TCPKeepAliveTime** (long)
+
+The number of seconds the TCP connection of the agent with the controller needs to be idle before
+keepalive packets are sent. When `TCPKeepAliveTime` is set to 0, the system default will be used.
+Default: 1s.
+
+#### **TCPKeepAliveInterval** (long)
+
+The number of seconds between each keepalive packet. When `TCPKeepAliveInterval` is set to 0,
+the system default will be used.
+Default: 1s.
+
+#### **TCPKeepAliveCount** (long)
+
+The number of keepalive packets without ACK from the controller till the connection is
+dropped. When `TCPKeepAliveCount` is set to 0, the system default will be used.
+Default: 6.
+
+
 ## Example
 
-Using `ManagerHost` and `ManagerPort` options:
+Using `ControllerHost` and `ControllerPort` options:
 
 ```
 [bluechi-agent]
 NodeName=agent-007
-ManagerHost=127.0.0.1
-ManagerPort=842
+ControllerHost=127.0.0.1
+ControllerPort=842
 LogLevel=DEBUG
 LogTarget=journald
 LogIsQuiet=false
 ```
 
-Using `ManagerAddress` option:
+Using `ControllerAddress` option:
 
 ```
 [bluechi-agent]
 NodeName=agent-007
-ManagerAddress=tcp:host=127.0.0.1,port=842
+ControllerAddress=tcp:host=127.0.0.1,port=842
 LogLevel=DEBUG
 LogTarget=journald
 LogIsQuiet=false
@@ -96,7 +128,7 @@ Using a value that is continued on multiple lines:
 ```
 [bluechi-agent]
 NodeName=agent-007
-ManagerAddress=tcp:
+ControllerAddress=tcp:
   host=127.0.0.1,
   port=842
 LogLevel=DEBUG

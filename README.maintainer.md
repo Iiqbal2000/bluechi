@@ -1,4 +1,4 @@
-# BlueChi
+# Eclipse BlueChi&trade;
 
 ## Creating a new release
 
@@ -14,8 +14,10 @@ Following files need to be updated to create a new stable release commit:
 
 * In [build-scripts/version.sh](./build-scripts/version.sh) set `IS_RELEASE=true`. For the first release of that version
 `RELEASE=1` is used. This may be increased if additional package releases are needed.
-* A new `%changelog` section in [bluechi.spec.in](./bluechi.spec.in) should be added and it should contain information
-about the new package release
+* CentOS/Fedora: A new `%changelog` section in [bluechi.spec.in](./bluechi.spec.in) should be added and it should
+contain information about the new package release
+* Debian: A new changelong section in [debian/changelog](./debian/changelog) should be added. It can be as simple
+as "Upgrading to vx.x.x"
 
 Here is the example of the release commit for version
 [0.6.0](https://github.com/eclipse-bluechi/bluechi/pull/637).
@@ -66,3 +68,11 @@ Here is the example of the post release commit for version
 
 **WARNING:** There should not be merged any commits to the project between the release commit and the post release
 commit to make things clear.
+
+### Creating the Software Bill of Materials (SBOM)
+
+After the new release has been created, the [GitHub workflow for generating BlueChi's SBOMs](./.github/workflows/sbom.yml)
+can be started manually (by project collaborators) for the recent tag created. It uses [sbom4rpms](https://github.com/engelmi/sbom4rpm)
+and will build as well as analyze BlueChi's runtime dependencies declared in the RPM packages recursively. The
+generated SBOMs are being attached to the Action run.
+The .zip containing the SBOMs can be downloaded and attached to the assets of the respective BlueChi release.

@@ -1,8 +1,12 @@
+#
+# Copyright Contributors to the Eclipse BlueChi project
+#
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 network_src = [
   'get_log_timestamp',
-  'get_time_seconds',
+  'micros_to_millis_test',
+  'timespec_to_micros_test',
 ]
 
 foreach src : network_src

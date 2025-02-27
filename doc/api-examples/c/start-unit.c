@@ -1,5 +1,8 @@
-// SPDX-License-Identifier: MIT-0
-
+/*
+ * Copyright Contributors to the Eclipse BlueChi project
+ *
+ * SPDX-License-Identifier: MIT-0
+ */
 #include <stdbool.h>
 #include <stdlib.h>
 #include <systemd/sd-bus.h>
@@ -12,7 +15,7 @@ static int get_node_path(sd_bus *bus, char *node_name, char **ret_node_path) {
                         bus,
                         "org.eclipse.bluechi",
                         "/org/eclipse/bluechi",
-                        "org.eclipse.bluechi.Manager",
+                        "org.eclipse.bluechi.Controller",
                         "GetNode",
                         &error,
                         &result,

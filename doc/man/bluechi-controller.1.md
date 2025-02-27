@@ -2,7 +2,7 @@
 
 ## NAME
 
-bluechi-controller - Manager of services across agents
+bluechi-controller - Controller of services across agents
 
 ## SYNOPSIS
 
@@ -10,7 +10,7 @@ bluechi-controller - Manager of services across agents
 
 ## DESCRIPTION
 
-BlueChi is a systemd service controller intended for multi-nodes environments with a predefined number of nodes and with a focus on highly regulated environment such as those requiring functional safety (for example in cars).
+Eclipse BlueChi™ is a systemd service controller intended for multi-nodes environments with a predefined number of nodes and with a focus on highly regulated environment such as those requiring functional safety (for example in cars).
 
 The bluechi controller offers its public API on the local DBus and uses the DBus APIs provided by all connected `bluechi-agents` to manage systemd services on those remote systems.
 

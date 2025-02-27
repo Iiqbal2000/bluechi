@@ -1,4 +1,8 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
+/*
+ * Copyright Contributors to the Eclipse BlueChi project
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
 #include <errno.h>
 #include <getopt.h>
 #include <stdio.h>
@@ -10,18 +14,20 @@
 
 #include "agent.h"
 
-const struct option options[] = { { ARG_HOST, required_argument, 0, ARG_HOST_SHORT },
-                                  { ARG_PORT, required_argument, 0, ARG_PORT_SHORT },
-                                  { ARG_ADDRESS, required_argument, 0, ARG_ADDRESS_SHORT },
-                                  { ARG_NAME, required_argument, 0, ARG_NAME_SHORT },
-                                  { ARG_HEARTBEAT_INTERVAL, required_argument, 0, ARG_HEARTBEAT_INTERVAL_SHORT },
-                                  { ARG_CONFIG, required_argument, 0, ARG_CONFIG_SHORT },
-                                  { ARG_USER, no_argument, 0, ARG_USER_SHORT },
-                                  { ARG_HELP, no_argument, 0, ARG_HELP_SHORT },
-                                  { ARG_VERSION, no_argument, 0, ARG_VERSION_SHORT },
-                                  { NULL, 0, 0, '\0' } };
+const struct option options[] = {
+        { ARG_HOST,               required_argument, 0, ARG_HOST_SHORT               },
+        { ARG_PORT,               required_argument, 0, ARG_PORT_SHORT               },
+        { ARG_ADDRESS,            required_argument, 0, ARG_ADDRESS_SHORT            },
+        { ARG_NAME,               required_argument, 0, ARG_NAME_SHORT               },
+        { ARG_HEARTBEAT_INTERVAL, required_argument, 0, ARG_HEARTBEAT_INTERVAL_SHORT },
+        { ARG_CONFIG,             required_argument, 0, ARG_CONFIG_SHORT             },
+        { ARG_USER,               no_argument,       0, ARG_USER_SHORT               },
+        { ARG_HELP,               no_argument,       0, ARG_HELP_SHORT               },
+        { ARG_VERSION,            no_argument,       0, ARG_VERSION_SHORT            },
+        { NULL,                   0,                 0, '\0'                         }
+};
 
-#define OPTIONS_STR                                                                               \
+#define GETOPT_OPTSTRING                                                                          \
         ARG_PORT_SHORT_S ARG_HOST_SHORT_S ARG_ADDRESS_SHORT_S ARG_HELP_SHORT_S ARG_CONFIG_SHORT_S \
                         ARG_NAME_SHORT_S ARG_USER_SHORT_S ARG_HEARTBEAT_INTERVAL_SHORT_S ARG_VERSION_SHORT_S
 
@@ -70,7 +76,7 @@ static void usage(char *argv[]) {
 static int get_opts(int argc, char *argv[]) {
         int opt = 0;
 
-        while ((opt = getopt_long(argc, argv, OPTIONS_STR, options, NULL)) != -1) {
+        while ((opt = getopt_long(argc, argv, GETOPT_OPTSTRING, options, NULL)) != -1) {
                 switch (opt) {
                 case ARG_HELP_SHORT:
                         usage(argv);
@@ -131,12 +137,20 @@ int main(int argc, char *argv[]) {
                 return EXIT_FAILURE;
         }
 
-        /* First load config */
         if (!agent_parse_config(agent, opt_config)) {
                 return EXIT_FAILURE;
         }
 
-        /* Then override individual options */
+        bc_log_init(agent->config);
+        _cleanup_free_ const char *dumped_cfg = cfg_dump(agent->config);
+        bc_log_debugf("Final configuration used:\n%s", dumped_cfg);
+
+        if (!agent_apply_config(agent)) {
+                return EXIT_FAILURE;
+        }
+
+        /* Override individual options */
+
         agent_set_systemd_user(agent, opt_user);
 
         if (opt_port && !agent_set_port(agent, opt_port)) {
@@ -147,7 +161,7 @@ int main(int argc, char *argv[]) {
                 return EXIT_FAILURE;
         }
 
-        if (opt_address && !agent_set_orch_address(agent, opt_address)) {
+        if (opt_address && !agent_set_assembled_controller_address(agent, opt_address)) {
                 return EXIT_FAILURE;
         }
 
@@ -162,7 +176,5 @@ int main(int argc, char *argv[]) {
         if (agent_start(agent)) {
                 return EXIT_SUCCESS;
         }
-
-        agent_stop(agent);
-        return EXIT_SUCCESS;
+        return EXIT_FAILURE;
 }

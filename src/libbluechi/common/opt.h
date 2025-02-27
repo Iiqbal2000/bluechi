@@ -1,4 +1,8 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
+/*
+ * Copyright Contributors to the Eclipse BlueChi project
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
 #pragma once
 
 #define ARG_PORT "port"
@@ -30,8 +34,7 @@
 #define ARG_NAME_SHORT_S "n:"
 
 #define ARG_FILTER "filter"
-#define ARG_FILTER_SHORT 'f'
-#define ARG_FILTER_SHORT_S "f:"
+#define ARG_FILTER_SHORT 1000
 
 #define ARG_HELP "help"
 #define ARG_HELP_SHORT 'h'
@@ -40,3 +43,25 @@
 #define ARG_VERSION "version"
 #define ARG_VERSION_SHORT 'v'
 #define ARG_VERSION_SHORT_S "v"
+
+#define ARG_FORCE "force"
+#define ARG_FORCE_SHORT 'f'
+#define ARG_FORCE_SHORT_S "f"
+
+#define ARG_RUNTIME "runtime"
+#define ARG_RUNTIME_SHORT 1001
+
+#define ARG_NO_RELOAD "no-reload"
+#define ARG_NO_RELOAD_SHORT 1002
+
+#define ARG_KILL_WHOM "kill-whom"
+#define ARG_KILL_WHOM_SHORT 1003
+
+#define ARG_SIGNAL "signal"
+#define ARG_SIGNAL_SHORT 1004
+
+#define ARG_WATCH "watch"
+#define ARG_WATCH_SHORT 'w'
+#define ARG_WATCH_SHORT_S "w"
+
+#define GETOPT_UNKNOWN_OPTION '?'

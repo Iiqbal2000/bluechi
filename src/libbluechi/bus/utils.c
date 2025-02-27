@@ -1,16 +1,15 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
+/*
+ * Copyright Contributors to the Eclipse BlueChi project
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
 #include <errno.h>
 #include <netinet/in.h>
-#include <netinet/tcp.h>
 #include <sys/socket.h>
 
+#include "libbluechi/common/string-util.h"
+
 #include "utils.h"
-
-/* Number of seconds idle before sending keepalive packets */
-#define AGENT_KEEPALIVE_SOCKET_KEEPIDLE_SECS 1
-
-/* Number of seconds idle between each keepalive packet */
-#define AGENT_KEEPALIVE_SOCKET_KEEPINTVL_SECS 1
 
 int bus_parse_properties_foreach(sd_bus_message *m, bus_property_cb cb, void *userdata) {
         bool stop = false;
@@ -193,45 +192,52 @@ int bus_parse_unit_info(sd_bus_message *message, UnitInfo *u) {
         return r;
 }
 
-int bus_parse_unit_on_node_info(sd_bus_message *message, UnitInfo *u) {
+UnitFileInfo *new_unit_file() {
+        _cleanup_unit_file_ UnitFileInfo *unit_file = malloc0(sizeof(UnitFileInfo));
+        if (unit_file == NULL) {
+                return NULL;
+        }
+
+        unit_file->ref_count = 1;
+        LIST_INIT(unit_files, unit_file);
+
+        return steal_pointer(&unit_file);
+}
+
+UnitFileInfo *unit_file_ref(UnitFileInfo *unit_file) {
+        unit_file->ref_count++;
+        return unit_file;
+}
+
+void unit_file_unref(UnitFileInfo *unit_file) {
+        unit_file->ref_count--;
+        if (unit_file->ref_count != 0) {
+                return;
+        }
+
+        free_and_null(unit_file->node);
+        free_and_null(unit_file->unit_path);
+        free_and_null(unit_file->enablement_status);
+
+        free(unit_file);
+}
+
+int bus_parse_unit_file_info(sd_bus_message *m, UnitFileInfo *unit_file) {
         int r = 0;
-        char *node = NULL, *id = NULL, *description = NULL, *load_state = NULL;
-        char *active_state = NULL, *sub_state = NULL, *following = NULL, *unit_path = NULL;
-        int job_id = 0;
-        char *job_type = NULL, *job_path = NULL;
-        assert(message);
-        assert(u);
+        char *unit_path = NULL;
+        char *enablement_status = NULL;
 
-        r = sd_bus_message_read(
-                        message,
-                        NODE_AND_UNIT_INFO_STRUCT_TYPESTRING,
-                        &node,
-                        &id,
-                        &description,
-                        &load_state,
-                        &active_state,
-                        &sub_state,
-                        &following,
-                        &unit_path,
-                        &job_id,
-                        &job_type,
-                        &job_path);
+        assert(m);
+        assert(unit_file);
 
+        r = sd_bus_message_read(m, UNIT_FILE_INFO_STRUCT_TYPESTRING, &unit_path, &enablement_status);
         if (r <= 0) {
                 return r;
         }
 
-        u->node = strdup(node);
-        u->id = strdup(id);
-        u->description = strdup(description);
-        u->load_state = strdup(load_state);
-        u->active_state = strdup(active_state);
-        u->sub_state = strdup(sub_state);
-        u->following = strdup(following);
-        u->unit_path = strdup(unit_path);
-        u->job_id = job_id;
-        u->job_type = strdup(job_type);
-        u->job_path = strdup(job_path);
+        unit_file->node = NULL;
+        unit_file->unit_path = strdup(unit_path);
+        unit_file->enablement_status = strdup(enablement_status);
 
         return r;
 }
@@ -244,10 +250,20 @@ int assemble_object_path_string(const char *prefix, const char *name, char **res
         return asprintf(res, "%s/%s", prefix, escaped);
 }
 
+// Disabling -Wunterminated-string-initialization temporarily.
+// hexchar uses the table array only for mapping an integer to
+// a hexadecimal char, no need for it to be NULL terminated.
+#if __GNUC__ >= 15
+#        pragma GCC diagnostic push
+#        pragma GCC diagnostic ignored "-Wunterminated-string-initialization"
+#endif
 static char hexchar(int x) {
         static const char table[16] = "0123456789abcdef";
         return table[(unsigned int) x % sizeof(table)];
 }
+#if __GNUC__ >= 15
+#        pragma GCC diagnostic pop
+#endif
 
 char *bus_path_escape(const char *s) {
 
@@ -278,61 +294,50 @@ char *bus_path_escape(const char *s) {
         return r;
 }
 
-static bool is_socket_tcp(int fd) {
-        int type = 0;
-        socklen_t length = sizeof(int);
-
-        getsockopt(fd, SOL_SOCKET, SO_DOMAIN, &type, &length);
-
-        return type == AF_INET || type == AF_INET6;
-}
-
-int bus_socket_set_no_delay(sd_bus *bus) {
+int bus_socket_set_options(sd_bus *bus, SocketOptions *opts) {
         int fd = sd_bus_get_fd(bus);
         if (fd < 0) {
                 return fd;
         }
 
-        if (!is_socket_tcp(fd)) {
-                return 0;
-        }
-
-        int flag = 1;
-        int r = setsockopt(fd, SOL_TCP, TCP_NODELAY, (char *) &flag, sizeof(int));
-        if (r < 0) {
-                return -errno;
-        }
-
-        return 0;
+        return socket_set_options(fd, opts);
 }
 
-int bus_socket_set_keepalive(sd_bus *bus) {
-        int fd = sd_bus_get_fd(bus);
-        if (fd < 0) {
-                return fd;
+/*
+ * Copied from libsystemd/sd-bus/bus-internal.c service_name_is_valid and adjusted to
+ * exclude the well-known service names. Also does not support '_' and '-' characters.
+ */
+bool bus_id_is_valid(const char *name) {
+        if (isempty(name) || name[0] != ':') {
+                return false;
         }
 
-        if (!is_socket_tcp(fd)) {
-                return 0;
+        const char *i = name + 1;
+        bool dot = true;
+        bool found_dot = false;
+        for (; *i; i++) {
+                if (*i == '.') {
+                        if (dot) {
+                                return false;
+                        }
+                        found_dot = true;
+                        dot = true;
+                        continue;
+                }
+                dot = false;
+
+                if (!ascii_isalpha(*i) && !ascii_isdigit(*i)) {
+                        return false;
+                }
         }
 
-        int flag = 1;
-        int r = setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (char *) &flag, sizeof(int));
-        if (r < 0) {
-                return -errno;
+        if (i - name > SD_BUS_MAXIMUM_NAME_LENGTH) {
+                return false;
         }
 
-        int keepidle = AGENT_KEEPALIVE_SOCKET_KEEPIDLE_SECS;
-        r = setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(int));
-        if (r < 0) {
-                return -errno;
+        if (dot || !found_dot) {
+                return false;
         }
 
-        int keepintvl = AGENT_KEEPALIVE_SOCKET_KEEPINTVL_SECS;
-        r = setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(int));
-        if (r < 0) {
-                return -errno;
-        }
-
-        return 0;
+        return true;
 }

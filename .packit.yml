@@ -1,10 +1,10 @@
 ---
-
 upstream_project_url: https://github.com/eclipse-bluechi/bluechi
 issue_repository: https://github.com/eclipse-bluechi/bluechi
 specfile_path: bluechi.spec
 upstream_package_name: bluechi
 downstream_package_name: bluechi
+upstream_tag_template: v{version}
 
 update_release: false
 
@@ -13,6 +13,7 @@ srpm_build_deps:
   - gcc-c++
   - git
   - jq
+  - libselinux-devel
   - meson
   - systemd-devel
   - rpm-build
@@ -41,48 +42,88 @@ jobs:
       - fedora-rawhide-s390x
       - fedora-rawhide-x86_64
 
-  - job: tests
+  - &tests
+    job: tests
     trigger: pull_request
     identifier: integration-tests
     fmf_path: tests
+    tmt_plan: container
+    tf_extra_params:
+      test:
+        tmt:
+          test_filter: tag:testing-farm-container & tier:0
     labels:
       - standard
     env:
+      # Enable local provisioning as this is considered dangerous since tmt v1.38.0
+      # see https://github.com/teemtee/tmt/pull/3282
+      TMT_FEELING_SAFE: 1
       INSTALL_DEPS: "yes"
     targets:
       # Run integration tests on Fedora using CS9 containers, because running integrations tests on CS9 using CS9
       # containers is very flaky
-      - fedora-rawhide-x86_64
+      #
+      # This can be set to fedora-rawhide as soon as the following issue gets resolved:
+      # https://github.com/containers/podman/issues/22422
+      - fedora-latest-stable-x86_64
 
-  - job: tests
-    trigger: pull_request
+  - <<: *tests
     identifier: integration-tests-valgrind
-    fmf_path: tests
     labels:
       - valgrind
     env:
+      # Enable local provisioning as this is considered dangerous since tmt v1.38.0
+      # see https://github.com/teemtee/tmt/pull/3282
+      TMT_FEELING_SAFE: 1
       INSTALL_DEPS: "yes"
       WITH_VALGRIND: "1"
-    targets:
-      # Run integration tests on Fedora using CS9 containers, because running integrations tests on CS9 using CS9
-      # containers is very flaky
-      - fedora-rawhide-x86_64
 
   - job: copr_build
     trigger: commit
-    owner: '@centos-automotive-sig'
+    branch: main
+    owner: "@centos-automotive-sig"
     project: bluechi-snapshot
+    notifications:
+      failure_comment:
+        message: "BlueChi build failed for merged commit {commit_sha}. Please check logs {logs_url}, packit dashboard {packit_dashboard_url} and external service dashboard {external_dashboard_url}"
     targets:
       - centos-stream-9-aarch64
       - centos-stream-9-ppc64le
       - centos-stream-9-s390x
       - centos-stream-9-x86_64
+      - centos-stream-10-aarch64
+      - centos-stream-10-ppc64le
+      - centos-stream-10-s390x
+      - centos-stream-10-x86_64
       - epel-9-aarch64
       - epel-9-ppc64le
       - epel-9-s390x
       - epel-9-x86_64
+      - epel-10-aarch64
+      - epel-10-ppc64le
+      - epel-10-s390x
+      - epel-10-x86_64
       - fedora-all-aarch64
       - fedora-all-i386
       - fedora-all-ppc64le
       - fedora-all-s390x
       - fedora-all-x86_64
+
+  - job: propose_downstream
+    trigger: release
+    dist_git_branches:
+      - fedora-all
+      - epel-all
+
+  - job: koji_build
+    trigger: commit
+    dist_git_branches:
+      - fedora-all
+      - epel-all
+
+  - job: bodhi_update
+    trigger: commit
+    dist_git_branches:
+      # rawhide updates are created automatically
+      - fedora-branched
+      - epel-all

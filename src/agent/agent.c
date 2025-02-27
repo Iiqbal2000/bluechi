@@ -1,4 +1,8 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
+/*
+ * Copyright Contributors to the Eclipse BlueChi project
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
 #include <arpa/inet.h>
 #include <errno.h>
 #include <stdio.h>
@@ -106,11 +110,12 @@ char *agent_is_online(Agent *agent) {
 static int agent_stop_local_proxy_service(Agent *agent, ProxyService *proxy);
 static bool agent_connect(Agent *agent);
 static bool agent_reconnect(Agent *agent);
+static void agent_peer_bus_close(Agent *agent);
 
 static int agent_disconnected(UNUSED sd_bus_message *message, void *userdata, UNUSED sd_bus_error *error) {
         Agent *agent = (Agent *) userdata;
 
-        bc_log_error("Disconnected from manager");
+        bc_log_error("Disconnected from controller");
 
         agent->connection_state = AGENT_CONNECTION_STATE_RETRY;
         int r = sd_bus_emit_properties_changed(
@@ -118,10 +123,9 @@ static int agent_disconnected(UNUSED sd_bus_message *message, void *userdata, UN
         if (r < 0) {
                 bc_log_errorf("Failed to emit status property changed: %s", strerror(-r));
         }
-        r = get_time_seconds(&agent->disconnect_timestamp);
-        if (r < 0) {
-                bc_log_errorf("Failed to get current time on agent disconnect: %s", strerror(-r));
-        }
+
+        agent->disconnect_timestamp = get_time_micros();
+        agent->disconnect_timestamp_monotonic = get_time_micros_monotonic();
 
         /* try to reconnect right away */
         agent_reconnect(agent);
@@ -131,11 +135,54 @@ static int agent_disconnected(UNUSED sd_bus_message *message, void *userdata, UN
 
 static int agent_reset_heartbeat_timer(Agent *agent, sd_event_source **event_source);
 
+static bool agent_check_controller_liveness(Agent *agent) {
+        uint64_t diff = 0;
+        uint64_t now = 0;
+
+        if (agent->controller_heartbeat_threshold_msec <= 0) {
+                /* checking liveness by heartbeat disabled since configured threshold is <=0 */
+                return true;
+        }
+
+        now = get_time_micros_monotonic();
+        if (now == USEC_INFINITY) {
+                bc_log_error("Failed to get the monotonic time");
+                return true;
+        }
+
+        if (now < agent->controller_last_seen_monotonic) {
+                bc_log_error("Clock skew detected");
+                return true;
+        }
+
+        diff = now - agent->controller_last_seen_monotonic;
+        if (diff > (uint64_t) agent->controller_heartbeat_threshold_msec * USEC_PER_MSEC) {
+                bc_log_infof("Did not receive heartbeat from controller since '%d'ms. Disconnecting it...",
+                             agent->controller_heartbeat_threshold_msec);
+                agent_disconnected(NULL, agent, NULL);
+                return false;
+        }
+
+        return true;
+}
+
 static int agent_heartbeat_timer_callback(sd_event_source *event_source, UNUSED uint64_t usec, void *userdata) {
         Agent *agent = (Agent *) userdata;
 
         int r = 0;
-        if (agent->connection_state == AGENT_CONNECTION_STATE_CONNECTED) {
+        /* Being in CONNECTING state when the timer callback is executed implies that
+         * the agent hasn't received a reply from the controller yet. In this case,
+         * we drop the existing register call and the agent is set into RETRY state.*/
+        if (agent->connection_state == AGENT_CONNECTION_STATE_CONNECTING) {
+                bc_log_error("Agent connection attempt failed, retrying");
+                if (agent->register_call_slot != NULL) {
+                        sd_bus_slot_unrefp(&agent->register_call_slot);
+                        agent->register_call_slot = NULL;
+                }
+                agent->connection_state = AGENT_CONNECTION_STATE_RETRY;
+        }
+        if (agent->connection_state == AGENT_CONNECTION_STATE_CONNECTED &&
+            agent_check_controller_liveness(agent)) {
                 r = sd_bus_emit_signal(
                                 agent->peer_dbus,
                                 INTERNAL_AGENT_OBJECT_PATH,
@@ -147,7 +194,7 @@ static int agent_heartbeat_timer_callback(sd_event_source *event_source, UNUSED 
                 }
         } else if (agent->connection_state == AGENT_CONNECTION_STATE_RETRY) {
                 agent->connection_retry_count++;
-                bc_log_infof("Trying to connect to manager (try %d)", agent->connection_retry_count);
+                bc_log_infof("Trying to connect to controller (try %d)", agent->connection_retry_count);
                 if (!agent_reconnect(agent)) {
                         bc_log_debugf("Connection retry %d failed", agent->connection_retry_count);
                 }
@@ -183,7 +230,8 @@ static int agent_setup_heartbeat_timer(Agent *agent) {
         assert(agent);
 
         if (agent->heartbeat_interval_msec <= 0) {
-                bc_log_warnf("Heartbeat disabled since interval is '%d', ", agent->heartbeat_interval_msec);
+                bc_log_warnf("Heartbeat disabled since configured interval '%d' is <=0",
+                             agent->heartbeat_interval_msec);
                 return 0;
         }
 
@@ -390,25 +438,35 @@ Agent *agent_new(void) {
                 return NULL;
         }
 
+        _cleanup_free_ SocketOptions *socket_opts = socket_options_new();
+        if (socket_opts == NULL) {
+                bc_log_error("Out of memory");
+                return NULL;
+        }
+
+        struct hashmap *unit_infos = hashmap_new(
+                        sizeof(AgentUnitInfo), 0, 0, 0, unit_info_hash, unit_info_compare, unit_info_clear, NULL);
+        if (unit_infos == NULL) {
+                return NULL;
+        }
+
         _cleanup_agent_ Agent *agent = malloc0(sizeof(Agent));
         agent->ref_count = 1;
         agent->event = steal_pointer(&event);
         agent->api_bus_service_name = steal_pointer(&service_name);
-        LIST_HEAD_INIT(agent->outstanding_requests);
-        LIST_HEAD_INIT(agent->tracked_jobs);
-        LIST_HEAD_INIT(agent->proxy_services);
-
-        agent->unit_infos = hashmap_new(
-                        sizeof(AgentUnitInfo), 0, 0, 0, unit_info_hash, unit_info_compare, unit_info_clear, NULL);
-        if (agent->unit_infos == NULL) {
-                return NULL;
-        }
-
+        agent->peer_socket_options = steal_pointer(&socket_opts);
+        agent->unit_infos = unit_infos;
         agent->connection_state = AGENT_CONNECTION_STATE_DISCONNECTED;
         agent->connection_retry_count = 0;
+        agent->controller_last_seen = 0;
+        agent->controller_last_seen_monotonic = 0;
         agent->wildcard_subscription_active = false;
         agent->metrics_enabled = false;
         agent->disconnect_timestamp = 0;
+        agent->disconnect_timestamp_monotonic = 0;
+        LIST_HEAD_INIT(agent->outstanding_requests);
+        LIST_HEAD_INIT(agent->tracked_jobs);
+        LIST_HEAD_INIT(agent->proxy_services);
 
         return steal_pointer(&agent);
 }
@@ -471,20 +529,24 @@ void agent_unref(Agent *agent) {
         bc_log_debug("Finalizing agent");
 
         /* These are removed in agent_stop */
-        assert(agent->proxy_services == NULL);
+        assert(LIST_IS_EMPTY(agent->proxy_services));
 
         hashmap_free(agent->unit_infos);
 
         free_and_null(agent->name);
         free_and_null(agent->host);
-        free_and_null(agent->orch_addr);
+        free_and_null(agent->assembled_controller_address);
         free_and_null(agent->api_bus_service_name);
-        free_and_null(agent->manager_address);
+        free_and_null(agent->controller_address);
+        free_and_null(agent->peer_socket_options);
 
         if (agent->event != NULL) {
                 sd_event_unrefp(&agent->event);
         }
 
+        if (agent->register_call_slot != NULL) {
+                sd_bus_slot_unrefp(&agent->register_call_slot);
+        }
         if (agent->metrics_slot != NULL) {
                 sd_bus_slot_unrefp(&agent->metrics_slot);
         }
@@ -517,12 +579,12 @@ bool agent_set_port(Agent *agent, const char *port_s) {
         return true;
 }
 
-bool agent_set_manager_address(Agent *agent, const char *address) {
-        return copy_str(&agent->manager_address, address);
+bool agent_set_controller_address(Agent *agent, const char *address) {
+        return copy_str(&agent->controller_address, address);
 }
 
-bool agent_set_orch_address(Agent *agent, const char *address) {
-        return copy_str(&agent->orch_addr, address);
+bool agent_set_assembled_controller_address(Agent *agent, const char *address) {
+        return copy_str(&agent->assembled_controller_address, address);
 }
 
 bool agent_set_host(Agent *agent, const char *host) {
@@ -544,6 +606,16 @@ bool agent_set_heartbeat_interval(Agent *agent, const char *interval_msec) {
         return true;
 }
 
+bool agent_set_controller_heartbeat_threshold(Agent *agent, const char *threshold_msec) {
+        long threshold = 0;
+
+        if (!parse_long(threshold_msec, &threshold)) {
+                bc_log_errorf("Invalid heartbeat threshold format '%s'", threshold_msec);
+                return false;
+        }
+        agent->controller_heartbeat_threshold_msec = threshold;
+        return true;
+}
 
 void agent_set_systemd_user(Agent *agent, bool systemd_user) {
         agent->systemd_user = systemd_user;
@@ -564,54 +636,46 @@ bool agent_parse_config(Agent *agent, const char *configfile) {
                 return false;
         }
         result = cfg_load_complete_configuration(
-                        agent->config, CFG_AGENT_DEFAULT_CONFIG, CFG_ETC_BC_AGENT_CONF, CFG_ETC_AGENT_CONF_DIR);
+                        agent->config,
+                        CFG_AGENT_DEFAULT_CONFIG,
+                        CFG_ETC_BC_AGENT_CONF,
+                        CFG_ETC_AGENT_CONF_DIR,
+                        configfile);
         if (result != 0) {
                 return false;
         }
+        return true;
+}
 
-        if (configfile != NULL) {
-                result = cfg_load_from_file(agent->config, configfile);
-                if (result < 0) {
-                        fprintf(stderr,
-                                "Error loading configuration file '%s', error code '%s'.\n",
-                                configfile,
-                                strerror(-result));
-                        return false;
-                } else if (result > 0) {
-                        fprintf(stderr, "Error parsing configuration file '%s' on line %d\n", configfile, result);
-                        return false;
-                }
-        }
-
-
-        // set logging configuration
-        bc_log_init(agent->config);
-
+bool agent_apply_config(Agent *agent) {
         const char *value = NULL;
         value = cfg_get_value(agent->config, CFG_NODE_NAME);
         if (value) {
                 if (!agent_set_name(agent, value)) {
+                        bc_log_error("Failed to set CONTROLLER NAME");
                         return false;
                 }
         }
 
-        value = cfg_get_value(agent->config, CFG_MANAGER_HOST);
+        value = cfg_get_value(agent->config, CFG_CONTROLLER_HOST);
         if (value) {
                 if (!agent_set_host(agent, value)) {
+                        bc_log_error("Failed to set CONTROLLER HOST");
                         return false;
                 }
         }
 
-        value = cfg_get_value(agent->config, CFG_MANAGER_PORT);
+        value = cfg_get_value(agent->config, CFG_CONTROLLER_PORT);
         if (value) {
                 if (!agent_set_port(agent, value)) {
                         return false;
                 }
         }
 
-        value = cfg_get_value(agent->config, CFG_MANAGER_ADDRESS);
+        value = cfg_get_value(agent->config, CFG_CONTROLLER_ADDRESS);
         if (value) {
-                if (!agent_set_manager_address(agent, value)) {
+                if (!agent_set_controller_address(agent, value)) {
+                        bc_log_error("Failed to set CONTROLLER ADDRESS");
                         return false;
                 }
         }
@@ -623,8 +687,41 @@ bool agent_parse_config(Agent *agent, const char *configfile) {
                 }
         }
 
-        _cleanup_free_ const char *dumped_cfg = cfg_dump(agent->config);
-        bc_log_debug_with_data("Final configuration used", "\n%s", dumped_cfg);
+        value = cfg_get_value(agent->config, CFG_CONTROLLER_HEARTBEAT_THRESHOLD);
+        if (value) {
+                if (!agent_set_controller_heartbeat_threshold(agent, value)) {
+                        return false;
+                }
+        }
+
+        /* Set socket options used for peer connections with the agents */
+        const char *keepidle = cfg_get_value(agent->config, CFG_TCP_KEEPALIVE_TIME);
+        if (keepidle) {
+                if (socket_options_set_tcp_keepidle(agent->peer_socket_options, keepidle) < 0) {
+                        bc_log_error("Failed to set TCP KEEPIDLE");
+                        return false;
+                }
+        }
+        const char *keepintvl = cfg_get_value(agent->config, CFG_TCP_KEEPALIVE_INTERVAL);
+        if (keepintvl) {
+                if (socket_options_set_tcp_keepintvl(agent->peer_socket_options, keepintvl) < 0) {
+                        bc_log_error("Failed to set TCP KEEPINTVL");
+                        return false;
+                }
+        }
+        const char *keepcnt = cfg_get_value(agent->config, CFG_TCP_KEEPALIVE_COUNT);
+        if (keepcnt) {
+                if (socket_options_set_tcp_keepcnt(agent->peer_socket_options, keepcnt) < 0) {
+                        bc_log_error("Failed to set TCP KEEPCNT");
+                        return false;
+                }
+        }
+        if (socket_options_set_ip_recverr(
+                            agent->peer_socket_options,
+                            cfg_get_bool_value(agent->config, CFG_IP_RECEIVE_ERRORS)) < 0) {
+                bc_log_error("Failed to set IP RECVERR");
+                return false;
+        }
 
         return true;
 }
@@ -755,6 +852,50 @@ static int agent_method_list_units(sd_bus_message *m, void *userdata, UNUSED sd_
         }
 
         if (!systemd_request_start(req, list_units_callback)) {
+                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to start systemd request");
+        }
+
+        return 1;
+}
+
+/************************************************************************
+ ********** org.eclipse.bluechi.internal.Agent.ListUnitFiles ************
+ ************************************************************************/
+
+static int list_unit_files_callback(sd_bus_message *m, void *userdata, UNUSED sd_bus_error *ret_error) {
+        _cleanup_systemd_request_ SystemdRequest *req = userdata;
+
+        if (sd_bus_message_is_method_error(m, NULL)) {
+                return sd_bus_reply_method_error(req->request_message, sd_bus_message_get_error(m));
+        }
+
+        _cleanup_sd_bus_message_ sd_bus_message *reply = NULL;
+
+        int r = sd_bus_message_new_method_return(req->request_message, &reply);
+        if (r < 0) {
+                return r;
+        }
+
+        r = sd_bus_message_copy(reply, m, true);
+        if (r < 0) {
+                return r;
+        }
+
+        return sd_bus_message_send(reply);
+}
+
+static int agent_method_list_unit_files(sd_bus_message *m, void *userdata, UNUSED sd_bus_error *ret_error) {
+        Agent *agent = userdata;
+
+        _cleanup_systemd_request_ SystemdRequest *req = agent_create_request(agent, m, "ListUnitFiles");
+        if (req == NULL) {
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to create a systemd request for the ListUnitFiles method");
+        }
+
+        if (!systemd_request_start(req, list_unit_files_callback)) {
                 return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to start systemd request");
         }
 
@@ -1309,7 +1450,7 @@ static int agent_method_subscribe(sd_bus_message *m, void *userdata, UNUSED sd_b
                 }
                 agent->wildcard_subscription_active = true;
 
-                AgentUnitInfo info = { NULL, (char *) unit, true, true, -1, NULL };
+                AgentUnitInfo info = { NULL, (char *) unit, true, true, _UNIT_ACTIVE_STATE_INVALID, NULL };
                 agent_emit_unit_new(agent, &info, "virtual");
 
                 return sd_bus_reply_method_return(m, "");
@@ -1537,16 +1678,16 @@ static int agent_method_disable_metrics(sd_bus_message *m, void *userdata, UNUSE
         }
         agent->metrics_enabled = false;
         sd_bus_slot_unrefp(&agent->metrics_slot);
+        agent->metrics_slot = NULL;
         bc_log_debug("Metrics disabled");
         return sd_bus_reply_method_return(m, "");
 }
 
 /*************************************************************************
- ************** org.eclipse.bluechi.Agent.SetNodeLogLevel  *
+ ************** org.eclipse.bluechi.Agent.SetNodeLogLevel  ***************
  *************************************************************************/
 
-static int agent_method_set_log_level(
-                UNUSED sd_bus_message *m, UNUSED void *userdata, UNUSED sd_bus_error *ret_error) {
+static int agent_method_set_log_level(sd_bus_message *m, UNUSED void *userdata, UNUSED sd_bus_error *ret_error) {
         const char *level = NULL;
         int r = sd_bus_message_read(m, "s", &level);
         if (r < 0) {
@@ -1556,7 +1697,7 @@ static int agent_method_set_log_level(
         }
         LogLevel loglevel = string_to_log_level(level);
         if (loglevel == LOG_LEVEL_INVALID) {
-                bc_log_errorf("Invalid input for log level: %s", loglevel);
+                bc_log_errorf("Invalid input for log level: %s", level);
                 return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Invalid input for log level");
         }
         bc_log_set_level(loglevel);
@@ -1565,13 +1706,84 @@ static int agent_method_set_log_level(
 }
 
 
+/*******************************************************************
+ ************** org.eclipse.bluechi.Agent.JobCancel  ***************
+ *******************************************************************/
+
+static int job_cancel_callback(sd_bus_message *m, void *userdata, UNUSED sd_bus_error *ret_error) {
+        _cleanup_systemd_request_ SystemdRequest *req = userdata;
+
+        if (sd_bus_message_is_method_error(m, NULL)) {
+                return sd_bus_reply_method_error(req->request_message, sd_bus_message_get_error(m));
+        }
+
+        _cleanup_sd_bus_message_ sd_bus_message *reply = NULL;
+        int r = sd_bus_message_new_method_return(req->request_message, &reply);
+        if (r < 0) {
+                return sd_bus_reply_method_errorf(
+                                req->request_message,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to create a reply message: %s",
+                                strerror(-r));
+        }
+
+        return sd_bus_message_send(reply);
+}
+
+static JobTracker *agent_find_jobtracker_by_bluechi_id(Agent *agent, uint32_t bc_job_id) {
+        JobTracker *track = NULL;
+        LIST_FOREACH(tracked_jobs, track, agent->tracked_jobs) {
+                AgentJobOp *op = (AgentJobOp *) track->userdata;
+                if (op->bc_job_id == bc_job_id) {
+                        return track;
+                }
+        }
+        return NULL;
+}
+
+static int agent_method_job_cancel(sd_bus_message *m, void *userdata, UNUSED sd_bus_error *ret_error) {
+        uint32_t bc_job_id = 0;
+        int r = sd_bus_message_read(m, "u", &bc_job_id);
+        if (r < 0) {
+                bc_log_errorf("Failed to read job ID: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m, SD_BUS_ERROR_FAILED, "Failed to read job ID: %s", strerror(-r));
+        }
+
+        Agent *agent = (Agent *) userdata;
+        JobTracker *tracker = agent_find_jobtracker_by_bluechi_id(agent, bc_job_id);
+        if (tracker == NULL) {
+                return sd_bus_reply_method_errorf(
+                                m, SD_BUS_ERROR_FAILED, "No job with ID '%d' found", bc_job_id);
+        }
+
+        _cleanup_systemd_request_ SystemdRequest *req = agent_create_request_full(
+                        agent, m, tracker->job_object_path, SYSTEMD_JOB_IFACE, "Cancel");
+        if (req == NULL) {
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to create a systemd request for the cancelling job '%d'",
+                                bc_job_id);
+        }
+
+        if (!systemd_request_start(req, job_cancel_callback)) {
+                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to start systemd request");
+        }
+
+        return sd_bus_reply_method_return(m, "");
+}
+
 static const sd_bus_vtable internal_agent_vtable[] = {
         SD_BUS_VTABLE_START(0),
         SD_BUS_METHOD("ListUnits", "", UNIT_INFO_STRUCT_ARRAY_TYPESTRING, agent_method_list_units, 0),
+        SD_BUS_METHOD("ListUnitFiles", "", UNIT_FILE_INFO_STRUCT_ARRAY_TYPESTRING, agent_method_list_unit_files, 0),
+        SD_BUS_METHOD("GetUnitFileState", "s", "s", agent_method_passthrough_to_systemd, 0),
         SD_BUS_METHOD("GetUnitProperties", "ss", "a{sv}", agent_method_get_unit_properties, 0),
         SD_BUS_METHOD("GetUnitProperty", "sss", "v", agent_method_get_unit_property, 0),
         SD_BUS_METHOD("SetUnitProperties", "sba(sv)", "", agent_method_set_unit_properties, 0),
         SD_BUS_METHOD("StartUnit", "ssu", "", agent_method_start_unit, 0),
+        SD_BUS_METHOD("StartTransientUnit", "ssa(sv)a(sa(sv))", "o", agent_method_passthrough_to_systemd, 0),
         SD_BUS_METHOD("StopUnit", "ssu", "", agent_method_stop_unit, 0),
         SD_BUS_METHOD("FreezeUnit", "s", "", agent_method_freeze_unit, 0),
         SD_BUS_METHOD("ThawUnit", "s", "", agent_method_thaw_unit, 0),
@@ -1582,6 +1794,17 @@ static const sd_bus_vtable internal_agent_vtable[] = {
         SD_BUS_METHOD("EnableMetrics", "", "", agent_method_enable_metrics, 0),
         SD_BUS_METHOD("DisableMetrics", "", "", agent_method_disable_metrics, 0),
         SD_BUS_METHOD("SetLogLevel", "s", "", agent_method_set_log_level, 0),
+        SD_BUS_METHOD("JobCancel", "u", "", agent_method_job_cancel, 0),
+        SD_BUS_METHOD("EnableUnitFiles", "asbb", "ba(sss)", agent_method_passthrough_to_systemd, 0),
+        SD_BUS_METHOD("DisableUnitFiles", "asb", "a(sss)", agent_method_passthrough_to_systemd, 0),
+        SD_BUS_METHOD("Reload", "", "", agent_method_passthrough_to_systemd, 0),
+        SD_BUS_METHOD("ResetFailed", "", "", agent_method_passthrough_to_systemd, 0),
+        SD_BUS_METHOD("ResetFailedUnit", "s", "", agent_method_passthrough_to_systemd, 0),
+        SD_BUS_METHOD("KillUnit", "ssi", "", agent_method_passthrough_to_systemd, 0),
+        SD_BUS_METHOD("StartDep", "s", "", agent_method_start_dep, 0),
+        SD_BUS_METHOD("StopDep", "s", "", agent_method_stop_dep, 0),
+        SD_BUS_METHOD("GetDefaultTarget", "", "s", agent_method_passthrough_to_systemd, 0),
+        SD_BUS_METHOD("SetDefaultTarget", "sb", "a(sss)", agent_method_passthrough_to_systemd, 0),
         SD_BUS_SIGNAL_WITH_NAMES("JobDone", "us", SD_BUS_PARAM(id) SD_BUS_PARAM(result), 0),
         SD_BUS_SIGNAL_WITH_NAMES("JobStateChanged", "us", SD_BUS_PARAM(id) SD_BUS_PARAM(state), 0),
         SD_BUS_SIGNAL_WITH_NAMES(
@@ -1598,11 +1821,6 @@ static const sd_bus_vtable internal_agent_vtable[] = {
                         0),
         SD_BUS_SIGNAL_WITH_NAMES("UnitRemoved", "s", SD_BUS_PARAM(unit), 0),
         SD_BUS_SIGNAL("Heartbeat", "", 0),
-        SD_BUS_METHOD("StartDep", "s", "", agent_method_start_dep, 0),
-        SD_BUS_METHOD("StopDep", "s", "", agent_method_stop_dep, 0),
-        SD_BUS_METHOD("EnableUnitFiles", "asbb", "ba(sss)", agent_method_passthrough_to_systemd, 0),
-        SD_BUS_METHOD("DisableUnitFiles", "asb", "a(sss)", agent_method_passthrough_to_systemd, 0),
-        SD_BUS_METHOD("Reload", "", "", agent_method_passthrough_to_systemd, 0),
         SD_BUS_VTABLE_END
 };
 
@@ -1713,6 +1931,54 @@ static int agent_method_remove_proxy(sd_bus_message *m, UNUSED void *userdata, U
 
 
 /*************************************************************************
+ **** org.eclipse.bluechi.Agent.SwitchController ******
+ *************************************************************************/
+
+static int agent_method_switch_controller(sd_bus_message *m, void *userdata, UNUSED sd_bus_error *ret_error) {
+        Agent *agent = userdata;
+        const char *dbus_address = NULL;
+
+        int r = sd_bus_message_read(m, "s", &dbus_address);
+        if (r < 0) {
+                bc_log_errorf("Failed to read D-Bus address parameter: %s", strerror(-r));
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to read D-Bus address parameter: %s",
+                                strerror(-r));
+        }
+
+        if (agent->assembled_controller_address && streq(agent->assembled_controller_address, dbus_address)) {
+                return sd_bus_reply_method_errorf(
+                                m,
+                                SD_BUS_ERROR_FAILED,
+                                "Failed to switch controller because already connected to the controller");
+        }
+
+        /* The assembled controller address is the field used for the ControllerAddress property.
+         * However, this field gets assembled in the reconnect based on the configuration of host + port
+         * or controller address.
+         * So in order to enable emitting the address changed signal be sent before the disconnect AND keep
+         * the new value, both fields need to be set with the new address.
+         */
+        if (!agent_set_assembled_controller_address(agent, dbus_address) ||
+            !agent_set_controller_address(agent, dbus_address)) {
+                bc_log_error("Failed to set controller address");
+                return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_FAILED, "Failed to set controller address");
+        }
+        r = sd_bus_emit_properties_changed(
+                        agent->api_bus, BC_AGENT_OBJECT_PATH, AGENT_INTERFACE, "ControllerAddress", NULL);
+        if (r < 0) {
+                bc_log_errorf("Failed to emit controller address property changed: %s", strerror(-r));
+        }
+
+        agent_disconnected(NULL, userdata, NULL);
+
+        return sd_bus_reply_method_return(m, "");
+}
+
+
+/*************************************************************************
  **** org.eclipse.bluechi.Agent.Status ****************
  *************************************************************************/
 
@@ -1730,20 +1996,34 @@ static int agent_property_get_status(
 }
 
 /*************************************************************************
- **** org.eclipse.bluechi.Agent.LastSuccessfulHeartbeat ****************
+ **** org.eclipse.bluechi.Agent.LogLevel ****************
  *************************************************************************/
 
-static int agent_property_get_disconnect_timestamp(
+static int agent_property_get_log_level(
                 UNUSED sd_bus *bus,
                 UNUSED const char *path,
                 UNUSED const char *interface,
                 UNUSED const char *property,
                 sd_bus_message *reply,
-                void *userdata,
+                UNUSED void *userdata,
                 UNUSED sd_bus_error *ret_error) {
-        Agent *agent = userdata;
+        const char *log_level = log_level_to_string(bc_log_get_level());
+        return sd_bus_message_append(reply, "s", log_level);
+}
 
-        return sd_bus_message_append(reply, "t", agent->disconnect_timestamp);
+/*************************************************************************
+ **** org.eclipse.bluechi.Agent.LogTarget ****************
+ *************************************************************************/
+
+static int agent_property_get_log_target(
+                UNUSED sd_bus *bus,
+                UNUSED const char *path,
+                UNUSED const char *interface,
+                UNUSED const char *property,
+                sd_bus_message *reply,
+                UNUSED void *userdata,
+                UNUSED sd_bus_error *ret_error) {
+        return sd_bus_message_append(reply, "s", log_target_to_str(bc_log_get_log_fn()));
 }
 
 
@@ -1751,13 +2031,37 @@ static const sd_bus_vtable agent_vtable[] = {
         SD_BUS_VTABLE_START(0),
         SD_BUS_METHOD("CreateProxy", "sss", "", agent_method_create_proxy, 0),
         SD_BUS_METHOD("RemoveProxy", "sss", "", agent_method_remove_proxy, 0),
+        SD_BUS_METHOD("JobCancel", "u", "", agent_method_job_cancel, 0),
+        SD_BUS_METHOD("SwitchController", "s", "", agent_method_switch_controller, 0),
 
         SD_BUS_PROPERTY("Status", "s", agent_property_get_status, 0, SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
+        SD_BUS_PROPERTY("LogLevel", "s", agent_property_get_log_level, 0, SD_BUS_VTABLE_PROPERTY_EXPLICIT),
+        SD_BUS_PROPERTY("LogTarget", "s", agent_property_get_log_target, 0, SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("DisconnectTimestamp",
                         "t",
-                        agent_property_get_disconnect_timestamp,
-                        0,
+                        NULL,
+                        offsetof(Agent, disconnect_timestamp),
                         SD_BUS_VTABLE_PROPERTY_EXPLICIT),
+        SD_BUS_PROPERTY("DisconnectTimestampMonotonic",
+                        "t",
+                        NULL,
+                        offsetof(Agent, disconnect_timestamp_monotonic),
+                        SD_BUS_VTABLE_PROPERTY_EXPLICIT),
+        SD_BUS_PROPERTY("LastSeenTimestamp",
+                        "t",
+                        NULL,
+                        offsetof(Agent, controller_last_seen),
+                        SD_BUS_VTABLE_PROPERTY_EXPLICIT),
+        SD_BUS_PROPERTY("LastSeenTimestampMonotonic",
+                        "t",
+                        NULL,
+                        offsetof(Agent, controller_last_seen_monotonic),
+                        SD_BUS_VTABLE_PROPERTY_EXPLICIT),
+        SD_BUS_PROPERTY("ControllerAddress",
+                        "s",
+                        NULL,
+                        offsetof(Agent, assembled_controller_address),
+                        SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
         SD_BUS_VTABLE_END
 };
 
@@ -1823,7 +2127,7 @@ static int agent_match_job_changed(sd_bus_message *m, void *userdata, UNUSED sd_
         }
 
         /* Only handle Job iface changes */
-        if (!streq(interface, "org.freedesktop.systemd1.Job")) {
+        if (!streq(interface, SYSTEMD_JOB_IFACE)) {
                 return 0;
         }
 
@@ -2027,6 +2331,28 @@ static int agent_match_job_removed(sd_bus_message *m, void *userdata, UNUSED sd_
         return 0;
 }
 
+static int agent_match_heartbeat(UNUSED sd_bus_message *m, void *userdata, UNUSED sd_bus_error *error) {
+        Agent *agent = userdata;
+        uint64_t now = 0;
+        uint64_t now_monotonic = 0;
+
+        now = get_time_micros();
+        if (now == USEC_INFINITY) {
+                bc_log_error("Failed to get current time on heartbeat");
+                return 0;
+        }
+
+        now_monotonic = get_time_micros_monotonic();
+        if (now_monotonic == USEC_INFINITY) {
+                bc_log_error("Failed to get current monotonic time on heartbeat");
+                return 0;
+        }
+
+        agent->controller_last_seen = now;
+        agent->controller_last_seen_monotonic = now_monotonic;
+        return 1;
+}
+
 static int debug_systemd_message_handler(
                 sd_bus_message *m, UNUSED void *userdata, UNUSED sd_bus_error *ret_error) {
         bc_log_infof("Incoming message from systemd: path: %s, iface: %s, member: %s, signature: '%s'",
@@ -2107,19 +2433,19 @@ int agent_init_units(Agent *agent, sd_bus_message *m) {
         return 0;
 }
 
-static bool ensure_orch_address(Agent *agent) {
+static bool ensure_assembled_controller_address(Agent *agent) {
         int r = 0;
 
-        if (agent->orch_addr != NULL) {
+        if (agent->assembled_controller_address != NULL) {
                 return true;
         }
 
-        if (agent->manager_address != NULL) {
-                return agent_set_orch_address(agent, agent->manager_address);
+        if (agent->controller_address != NULL) {
+                return agent_set_assembled_controller_address(agent, agent->controller_address);
         }
 
         if (agent->host == NULL) {
-                bc_log_errorf("No manager host specified for agent '%s'", agent->name);
+                bc_log_errorf("No controller host specified for agent '%s'", agent->name);
                 return false;
         }
 
@@ -2148,11 +2474,11 @@ static bool ensure_orch_address(Agent *agent) {
                         bc_log_errorf("INET4: Invalid host option '%s'", ip_address);
                         return false;
                 }
-                _cleanup_free_ char *orch_addr = assemble_tcp_address(&host);
-                if (orch_addr == NULL) {
+                _cleanup_free_ char *assembled_controller_address = assemble_tcp_address(&host);
+                if (assembled_controller_address == NULL) {
                         return false;
                 }
-                agent_set_orch_address(agent, orch_addr);
+                agent_set_assembled_controller_address(agent, assembled_controller_address);
         } else if (host_is_ipv6 || is_ipv6(ip_address)) {
                 struct sockaddr_in6 host6;
                 memset(&host6, 0, sizeof(host6));
@@ -2163,16 +2489,16 @@ static bool ensure_orch_address(Agent *agent) {
                         bc_log_errorf("INET6: Invalid host option '%s'", ip_address);
                         return false;
                 }
-                _cleanup_free_ char *orch_addr = assemble_tcp_address_v6(&host6);
-                if (orch_addr == NULL) {
+                _cleanup_free_ char *assembled_controller_address = assemble_tcp_address_v6(&host6);
+                if (assembled_controller_address == NULL) {
                         return false;
                 }
-                agent_set_orch_address(agent, orch_addr);
+                agent_set_assembled_controller_address(agent, assembled_controller_address);
         } else {
                 bc_log_errorf("Unknown protocol for '%s'", ip_address);
         }
 
-        return agent->orch_addr != NULL;
+        return agent->assembled_controller_address != NULL;
 }
 
 bool agent_start(Agent *agent) {
@@ -2190,7 +2516,7 @@ bool agent_start(Agent *agent) {
                 return false;
         }
 
-        if (!ensure_orch_address(agent)) {
+        if (!ensure_assembled_controller_address(agent)) {
                 return false;
         }
 
@@ -2334,13 +2660,10 @@ bool agent_start(Agent *agent) {
                 sd_bus_add_filter(agent->systemd_dbus, NULL, debug_systemd_message_handler, agent);
         }
 
-        r = shutdown_service_register(agent->api_bus, agent->event);
-        if (r < 0) {
-                bc_log_errorf("Failed to register shutdown service: %s", strerror(-r));
-                return false;
-        }
-
-        r = event_loop_add_shutdown_signals(agent->event);
+        ShutdownHook hook;
+        hook.shutdown = (ShutdownHookFn) agent_stop;
+        hook.userdata = agent;
+        r = event_loop_add_shutdown_signals(agent->event, &hook);
         if (r < 0) {
                 bc_log_errorf("Failed to add signals to agent event loop: %s", strerror(-r));
                 return false;
@@ -2353,7 +2676,7 @@ bool agent_start(Agent *agent) {
         }
 
         if (!agent_connect(agent)) {
-                bc_log_error("Initial manager connection failed, retrying");
+                bc_log_error("Initial controller connection failed, retrying");
                 agent->connection_state = AGENT_CONNECTION_STATE_RETRY;
         }
 
@@ -2366,9 +2689,19 @@ bool agent_start(Agent *agent) {
         return true;
 }
 
-bool agent_stop(Agent *agent) {
+void agent_stop(Agent *agent) {
         if (agent == NULL) {
-                return false;
+                return;
+        }
+
+        bc_log_debug("Stopping agent");
+
+        agent_peer_bus_close(agent);
+        agent->connection_state = AGENT_CONNECTION_STATE_DISCONNECTED;
+        int r = sd_bus_emit_properties_changed(
+                        agent->api_bus, BC_AGENT_OBJECT_PATH, AGENT_INTERFACE, "Status", NULL);
+        if (r < 0) {
+                bc_log_errorf("Failed to emit status property changed: %s", strerror(-r));
         }
 
         ProxyService *proxy = NULL;
@@ -2376,77 +2709,52 @@ bool agent_stop(Agent *agent) {
         LIST_FOREACH_SAFE(proxy_services, proxy, next_proxy, agent->proxy_services) {
                 agent_remove_proxy(agent, proxy, false);
         }
-
-        return true;
 }
 
-static bool agent_connect(Agent *agent) {
-        peer_bus_close(agent->peer_dbus);
+static bool agent_process_register_callback(sd_bus_message *m, Agent *agent) {
+        int r = 0;
 
-        bc_log_infof("Connecting to manager on %s", agent->orch_addr);
-
-        agent->peer_dbus = peer_bus_open(agent->event, "peer-bus-to-controller", agent->orch_addr);
-        if (agent->peer_dbus == NULL) {
-                bc_log_error("Failed to open peer dbus");
-                return false;
+        if (sd_bus_message_is_method_error(m, NULL)) {
+                bc_log_errorf("Registering as '%s' failed: %s",
+                              agent->name,
+                              sd_bus_message_get_error(m)->message);
+                return -EPERM;
         }
 
-        int r = bus_socket_set_no_delay(agent->peer_dbus);
-        if (r < 0) {
-                bc_log_warn("Failed to set NO_DELAY on socket");
-        }
-
-        r = bus_socket_set_keepalive(agent->peer_dbus);
-        if (r < 0) {
-                bc_log_warn("Failed to set KEEPALIVE on socket");
-        }
-
-        r = sd_bus_add_object_vtable(
-                        agent->peer_dbus,
-                        NULL,
-                        INTERNAL_AGENT_OBJECT_PATH,
-                        INTERNAL_AGENT_INTERFACE,
-                        internal_agent_vtable,
-                        agent);
-        if (r < 0) {
-                bc_log_errorf("Failed to add agent vtable: %s", strerror(-r));
-                return false;
-        }
-
-        _cleanup_sd_bus_message_ sd_bus_message *bus_msg = NULL;
-        sd_bus_error error = SD_BUS_ERROR_NULL;
-        r = sd_bus_call_method(
-                        agent->peer_dbus,
-                        BC_DBUS_NAME,
-                        INTERNAL_MANAGER_OBJECT_PATH,
-                        INTERNAL_MANAGER_INTERFACE,
-                        "Register",
-                        &error,
-                        &bus_msg,
-                        "s",
-                        agent->name);
-        if (r < 0) {
-                bc_log_errorf("Registering as '%s' failed: %s", agent->name, error.message);
-                sd_bus_error_free(&error);
-                return false;
-        }
-
-        r = sd_bus_message_read(bus_msg, "");
+        bc_log_info("Register call response received");
+        r = sd_bus_message_read(m, "");
         if (r < 0) {
                 bc_log_errorf("Failed to parse response message: %s", strerror(-r));
                 return false;
         }
 
-        bc_log_infof("Connected to manager as '%s'", agent->name);
+        bc_log_infof("Connected to controller as '%s'", agent->name);
 
         agent->connection_state = AGENT_CONNECTION_STATE_CONNECTED;
         agent->connection_retry_count = 0;
+        agent->controller_last_seen = get_time_micros();
+        agent->controller_last_seen_monotonic = get_time_micros_monotonic();
         agent->disconnect_timestamp = 0;
+        agent->disconnect_timestamp_monotonic = 0;
 
         r = sd_bus_emit_properties_changed(
                         agent->api_bus, BC_AGENT_OBJECT_PATH, AGENT_INTERFACE, "Status", NULL);
         if (r < 0) {
                 bc_log_errorf("Failed to emit status property changed: %s", strerror(-r));
+        }
+
+        r = sd_bus_match_signal(
+                        agent->peer_dbus,
+                        NULL,
+                        NULL,
+                        INTERNAL_CONTROLLER_OBJECT_PATH,
+                        INTERNAL_CONTROLLER_INTERFACE,
+                        CONTROLLER_HEARTBEAT_SIGNAL_NAME,
+                        agent_match_heartbeat,
+                        agent);
+        if (r < 0) {
+                bc_log_errorf("Failed to add heartbeat signal match: %s", strerror(-r));
+                return false;
         }
 
         r = sd_bus_match_signal_async(
@@ -2481,17 +2789,101 @@ static bool agent_connect(Agent *agent) {
         return true;
 }
 
-static bool agent_reconnect(Agent *agent) {
-        // resolve FQDN again in case the system changed
-        // e.g. bluechi controller has been migrated to a different host
-        if (agent->orch_addr != NULL) {
-                free_and_null(agent->orch_addr);
+static int agent_register_callback(sd_bus_message *m, void *userdata, UNUSED sd_bus_error *ret_error) {
+        Agent *agent = (Agent *) userdata;
+
+        if (agent->connection_state != AGENT_CONNECTION_STATE_CONNECTING) {
+                bc_log_error("Agent is not in CONNECTING state, dropping Register callback");
+                sd_bus_slot_unrefp(&agent->register_call_slot);
+                agent->register_call_slot = NULL;
+                return 0;
         }
-        if (!ensure_orch_address(agent)) {
+
+        if (!agent_process_register_callback(m, agent)) {
+                agent->connection_state = AGENT_CONNECTION_STATE_RETRY;
+        }
+
+        return 0;
+}
+
+static bool agent_connect(Agent *agent) {
+        bc_log_infof("Connecting to controller on %s", agent->assembled_controller_address);
+        agent->connection_state = AGENT_CONNECTION_STATE_CONNECTING;
+
+        agent->peer_dbus = peer_bus_open(
+                        agent->event, "peer-bus-to-controller", agent->assembled_controller_address);
+        if (agent->peer_dbus == NULL) {
+                bc_log_error("Failed to open peer dbus");
                 return false;
         }
 
+        bus_socket_set_options(agent->peer_dbus, agent->peer_socket_options);
+
+        int r = sd_bus_add_object_vtable(
+                        agent->peer_dbus,
+                        NULL,
+                        INTERNAL_AGENT_OBJECT_PATH,
+                        INTERNAL_AGENT_INTERFACE,
+                        internal_agent_vtable,
+                        agent);
+        if (r < 0) {
+                bc_log_errorf("Failed to add agent vtable: %s", strerror(-r));
+                return false;
+        }
+
+        _cleanup_sd_bus_message_ sd_bus_message *bus_msg = NULL;
+        r = sd_bus_call_method_async(
+                        agent->peer_dbus,
+                        &agent->register_call_slot,
+                        BC_DBUS_NAME,
+                        INTERNAL_CONTROLLER_OBJECT_PATH,
+                        INTERNAL_CONTROLLER_INTERFACE,
+                        "Register",
+                        agent_register_callback,
+                        agent,
+                        "s",
+                        agent->name);
+        if (r < 0) {
+                bc_log_errorf("Registering as '%s' failed: %s", agent->name, strerror(-r));
+                return false;
+        }
+
+        return true;
+}
+
+static bool agent_reconnect(Agent *agent) {
+        _cleanup_free_ char *assembled_controller_address = NULL;
+
+        // resolve FQDN again in case the system changed
+        // e.g. bluechi controller has been migrated to a different host
+        if (agent->assembled_controller_address != NULL) {
+                assembled_controller_address = steal_pointer(&agent->assembled_controller_address);
+        }
+        if (!ensure_assembled_controller_address(agent)) {
+                return false;
+        }
+
+        // If the controller address has changed, emit the respective signal
+        if (agent->assembled_controller_address && assembled_controller_address &&
+            !streq(agent->assembled_controller_address, assembled_controller_address)) {
+                int r = sd_bus_emit_properties_changed(
+                                agent->api_bus, BC_AGENT_OBJECT_PATH, AGENT_INTERFACE, "ControllerAddress", NULL);
+                if (r < 0) {
+                        bc_log_errorf("Failed to emit controller address property changed: %s", strerror(-r));
+                }
+        }
+
+        agent_peer_bus_close(agent);
         return agent_connect(agent);
+}
+
+static void agent_peer_bus_close(Agent *agent) {
+        if (agent->register_call_slot != NULL) {
+                sd_bus_slot_unref(agent->register_call_slot);
+                agent->register_call_slot = NULL;
+        }
+        peer_bus_close(agent->peer_dbus);
+        agent->peer_dbus = NULL;
 }
 
 static int stop_proxy_callback(sd_bus_message *m, void *userdata, UNUSED sd_bus_error *ret_error) {

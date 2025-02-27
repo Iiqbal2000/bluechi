@@ -7,29 +7,35 @@ The interfaces described in this sections are referencing the [introspection dat
 
 ## BlueChi public D-Bus API
 
-The main entry point is at the `/org/eclipse/bluechi` object path and implements the `org.eclipse.bluechi.Manager`
+The main entry point is at the `/org/eclipse/bluechi` object path and implements the `org.eclipse.bluechi.Controller`
 interface.
 
 Note that some properties also come with change events, so you can easily track when they change.
 
-### interface org.eclipse.bluechi.Manager
+### interface org.eclipse.bluechi.Controller
 
 #### Methods
 
-  * `ListUnits(out a(sssssssouso) units)`
+  * `ListUnits(out a{sa(ssssssouso)} units)`
 
-    Returns an array with all currently loaded systemd units on all online nodes. This is equivalent to calling
-    `Node.ListUnits()` on all the online nodes and adding the name of the node as the first element of each returned
-    element struct.
+    Returns a dictionary with all online nodes and all currently loaded systemd units on them. This is equivalent to calling
+    `Node.ListUnits()` on all the online nodes and adding the name of the node as the key element of the returned
+    dictionary.
+  
+  * `ListUnitFiles(out a{sa(ss)} unit_files)`
+
+    Returns a dictionary with all online nodes and all systemd unit files on them. This is equivalent to calling
+    `Node.ListUnitFiles()` on all the online nodes and adding the name of the node as the key element of the returned
+    dictionary.
 
   * `CreateMonitor(out o monitor)`
 
     Creates a new monitor object, which can be used to monitor the state of selected units on the nodes. The monitor
     object returned will automatically be closed if the calling peer disconnects from the bus.
 
-  * `ListNodes(out a(sos) nodes)`
+  * `ListNodes(out a(soss) nodes)`
 
-    Returns information (name, object_path and status) of all known nodes.
+    Returns information (name, object_path, status and peer IP) of all known nodes.
 
   * `GetNode(in s name, out o path)`
 
@@ -129,7 +135,7 @@ Object path: `/org/eclipse/bluechi/monitor/$id`
 ### interface org.eclipse.bluechi.Node
 
 Each node object represents a configured node in the system, independent of whether that node is connected to the
-manager or not, and the status can change over time.
+controller or not, and the status can change over time.
 
 Object path: `/org/eclipse/bluechi/node/$name`
 
@@ -143,7 +149,15 @@ Object path: `/org/eclipse/bluechi/node/$name`
 
     The job returned is an object path for an object implementing `org.eclipse.bluechi.Job`, and which be monitored for
     the progress of the job, or used to cancel the job. To track the result of the job, follow the `JobRemoved` signal
-    on the Manager.
+    on the Controller.
+  
+  * `StartTransientUnit(in  s name, in  s mode, in  a(sv) properties, in  a(sa(sv)) aux, out o job)`
+
+    `StartTransientUnit()` may be used to create and start a transient unit, which will be released as soon as it is not
+    running or referenced anymore or the system is rebooted. name is the unit name including suffix, and must be unique.
+    `mode` is the same as in `StartUnit()`, properties contains properties of the unit, specified like in SetUnitProperties().
+    `aux` is currently unused and should be passed as empty array. See the New Control Group Interfaces for more information
+    how to make use of this functionality for resource control purposes.
 
   * `StopUnit(in s name, in s mode, out o job)`
 
@@ -155,6 +169,14 @@ Object path: `/org/eclipse/bluechi/node/$name`
 
     `ReloadUnit()`/`RestartUnit()` is similar to `StartUnit()` but can be used to reload/restart a unit instead. See
     equivalent systemd methods for details.
+
+  * `ResetFailed()`
+
+        Equivalent to systemd method `ResetFailed`. This method will reset the failed state of all units on the node.
+
+  * `ResetFailedUnit(in  s name)`
+
+    Equivalent to systemd method `ResetFailedUnit`. This method will reset the failed state for a specific unit on the node.
 
   * `EnableUnitFiles(in  as files, in  b runtime, in  b force, out b carries_install_info, out a(sss) changes);`
 
@@ -172,6 +194,11 @@ Object path: `/org/eclipse/bluechi/node/$name`
 
     `DisableUnitFiles()` is similar to `EnableUnitFiles()` but
     disables the specified units by removing all symlinks to them in /etc/ and /run/
+
+  * `KillUnit(in s name, in s who, in i signal)`
+
+    Kills processes of a unit on a node.
+    If the who parameter is set to main, only the main process of a unit is killed. If control is used, then only the control process of the unit is killed. And if all is used, all processes are killed.
 
   * `GetUnitProperties(in s name, in s interface, out a{sv} props)`
 
@@ -192,6 +219,11 @@ Object path: `/org/eclipse/bluechi/node/$name`
     Returns all the currently loaded systemd units on this node. The returned structure is the same as the one returned
     by the systemd `ListUnits()` call.
 
+  * `ListUnitFiles(out a(ss) unit_files)`
+
+    Returns all the systemd unit files on this node. The returned structure is the same as the one returned
+    by the systemd `ListUnitFiles()` call.
+
   * `Reload()`
 
     `Reload()` may be invoked to reload all unit files.
@@ -209,10 +241,20 @@ Object path: `/org/eclipse/bluechi/node/$name`
   * `Status` - `s`
 
     Status of the node, currently one of: `online`, `offline`. Emits changed when this changes.
+  
+  * `PeerIp` - `s`
+
+    IP of the node.
+    The address might be set even though the node is still offline since a call to
+    org.eclipse.bluechi.Controller.Register hasn't been made.
 
   * `LastSeenTimestamp` - `t`
 
     Timestamp of the last successfully received heartbeat of the node.
+
+  * `LastSeenTimestampMonotonic` - `t`
+
+    Monotonic Timestamp of the last successfully received heartbeat of the node.
 
 ### interface org.eclipse.bluechi.Job
 
@@ -263,16 +305,20 @@ interface.
 
     Whenever a service on the agent requires a service on another node it creates a proxy service and calls this method.
     It then creates a new `org.eclipse.bluechi.internal.Proxy` object and emits the `ProxyNew` signal on the internal bus to
-    tell the manager about it. The manager will then try to arrange that the requested unit on the specified node is
+    tell the controller about it. The controller will then try to arrange that the requested unit on the specified node is
     running and notifies the initial agent about the status by calling `Ready` on the internal bus.
 
   * `RemoveProxy(in s service_name, in s node_name, in s unit_name)`
 
-    When a proxy is not needed anymore it is being removed on the node and a `ProxyRemoved` is emitted to notify the manager.
+    When a proxy is not needed anymore it is being removed on the node and a `ProxyRemoved` is emitted to notify the controller.
+
+  * `SwitchController(in s controller_address)`
+
+    Set the new controller address for bluechi-agent node and trigger a reconnect to the controller with the new address.
 
 ### interface org.eclipse.bluechi.Metrics
 
-This interface provides signals for collecting metrics. It is created by calling `EnableMetrics` on the `org.eclipse.bluechi.Manager` interface and removed by calling `DisableMetrics`.
+This interface provides signals for collecting metrics. It is created by calling `EnableMetrics` on the `org.eclipse.bluechi.Controller` interface and removed by calling `DisableMetrics`.
 
 #### Signals
 
@@ -287,13 +333,13 @@ This interface provides signals for collecting metrics. It is created by calling
 ## Internal D-Bus APIs
 
 The above APIs are the public facing ones that users of BlueChi would use. Additionally there are additional APIs that are
-used internally to synchronize between the manager and the nodes, and sometimes internally on a node. We here describe
+used internally to synchronize between the controller and the nodes, and sometimes internally on a node. We here describe
 these APIs.
 
-### interface org.eclipse.bluechi.internal.Manager
+### interface org.eclipse.bluechi.internal.Controller
 
-When a node connects to the manager it does so not via the public API, but via a direct peer-to-peer connection. On this
-connection the regular Manager API is not available, instead we're using internal Manager object as the basic data.
+When a node connects to the controller it does so not via the public API, but via a direct peer-to-peer connection. On this
+connection the regular Controller API is not available, instead we're using internal Controller object as the basic data.
 
 Object path: `/org/eclipse/bluechi/internal`
 
@@ -301,12 +347,18 @@ Object path: `/org/eclipse/bluechi/internal`
 
   * `Register(in st name)`
 
-    Before anything else can happen the node must call this method to register with the manager, giving its unique name.
-    If this succeeds, then the manager will consider the node online and start forwarding operations to it.
+    Before anything else can happen the node must call this method to register with the controller, giving its unique name.
+    If this succeeds, then the controller will consider the node online and start forwarding operations to it.
+
+#### Signals
+
+  * `Heartbeat()`
+
+    This is a periodic signal from the controller to the agent.
 
 ### interface org.eclipse.bluechi.internal.Agent
 
-This is the main interface that the node implements and that is used by the manager to affect change on the node.
+This is the main interface that the node implements and that is used by the controller to affect change on the node.
 
 #### Methods
 
@@ -318,17 +370,25 @@ This is the main interface that the node implements and that is used by the mana
 
   * `RestartUnit(in s name, in s mode, in u id)`
 
+  * `ResetFailed()`
+
+  * `ResetFailedUnit(in  s name)`
+
+  * `KillUnit(in s name, in s who, in i signal)`
+
   * `GetUnitProperties(in name, out a{sv} props)`
 
-  * `ListUnits(out a(ssssssouso) units);`
+  * `ListUnits(out a(ssssssouso) units)`
+
+  * `ListUnitFiles(out a(ss) units)`
 
     These are all API mirrors of the respective method in `org.eclipse.bluechi.Node`, and all they do is forward the
     same operation to the local systemd instance. Similarly, any changes in the systemd job will be forwarded to signals
-    on the node job which will then be forwarded to the manager job and reach the user.
+    on the node job which will then be forwarded to the controller job and reach the user.
 
   * `Subscribe(in unit s)`
 
-    Whenever some monitor object exists in the manager that matches a specific the node name and unit name, this method
+    Whenever some monitor object exists in the controller that matches a specific the node name and unit name, this method
     is called. This can happen either when a monitor is created or when a new node connects. Whenever *some*
     subscription is active, the node will call the systemd `Subscribed` method, and then register for `UnitNew`,
     `UnitRemoved` as well as for property change events on units. Any time a Unit changes it will emit the
@@ -366,11 +426,11 @@ This is the main interface that the node implements and that is used by the mana
 
   * `JobDone(u id, s result)`
 
-    Mirrors of the job signals in the manager and used to forward state changes from systemd to the manager.
+    Mirrors of the job signals in the controller and used to forward state changes from systemd to the controller.
 
   * `JobStateChanged(u id, s state)`
 
-    Forwards the job state property changes from systemd to the manager.
+    Forwards the job state property changes from systemd to the controller.
 
   * `UnitPropertiesChanged(s unit, s interface, a{sv} props)`
 
@@ -380,9 +440,9 @@ This is the main interface that the node implements and that is used by the mana
   * `ProxyNew(s node_name, s unit_name, o proxy)`
 
     Whenever a proxy service is running on the system with the node it calls into the node service, and the node service
-    creates a new `org.eclipse.bluechi.internal.Proxy` object and emits this signal to tell the manager about it. The manager
+    creates a new `org.eclipse.bluechi.internal.Proxy` object and emits this signal to tell the controller about it. The controller
     will notice this and try to arrange that the requested unit is running on the requested node. If the unit is already
-    running, when it is started, or when the start fails, the manager will call the `Ready()` method on it.
+    running, when it is started, or when the start fails, the controller will call the `Ready()` method on it.
 
   * `ProxyRemoved(s node_name, s unit_name)`
 
@@ -391,7 +451,7 @@ This is the main interface that the node implements and that is used by the mana
 
   * `Heartbeat()`
 
-    This is a periodic signal from the node to the manager.
+    This is a periodic signal from the node to the controller.
 
 ### interface org.eclipse.bluechi.internal.Proxy
 
@@ -402,13 +462,13 @@ with the proxy.
 
   * `Ready(in s result)`
 
-    Called by the manager when the corresponding service is active (either was running already, or was started), or when
+    Called by the controller when the corresponding service is active (either was running already, or was started), or when
     it failed. result is `done` if it was already running, otherwise it is the same value as the remote node returned in
     result from its start job.
 
 ### interface org.eclipse.bluechi.internal.Agent.Metrics
 
-This is the interface that provides signals sent from the agent to the manager to collect metrics, e.g. time measurements.
+This is the interface that provides signals sent from the agent to the controller to collect metrics, e.g. time measurements.
 
 #### Signals
 

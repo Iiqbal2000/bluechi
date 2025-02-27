@@ -1,10 +1,14 @@
 #!/usr/bin/python3
+#
+# Copyright Contributors to the Eclipse BlueChi project
+#
 # SPDX-License-Identifier: MIT-0
 
 import sys
-from dasbus.typing import get_native
-from dasbus.loop import EventLoop
+
 import dasbus.connection
+from dasbus.loop import EventLoop
+from dasbus.typing import get_native
 
 
 def print_dict_changes(old, new):
@@ -30,9 +34,9 @@ if len(sys.argv) > 2:
 
 bus = dasbus.connection.SystemMessageBus()
 
-manager = bus.get_proxy("org.eclipse.bluechi", "/org/eclipse/bluechi")
+controller = bus.get_proxy("org.eclipse.bluechi", "/org/eclipse/bluechi")
 
-monitor_path = manager.CreateMonitor()
+monitor_path = controller.CreateMonitor()
 monitor = bus.get_proxy("org.eclipse.bluechi", monitor_path)
 
 old_values = {}
@@ -53,7 +57,9 @@ def unit_new(node, unit, reason):
 
 
 def unit_state_changed(node, unit, active_state, substate, reason):
-    print(f"Unit {unit} on node {node}, changed to state: {active_state} ({substate}), reason: {reason}")
+    print(
+        f"Unit {unit} on node {node}, changed to state: {active_state} ({substate}), reason: {reason}"
+    )
 
 
 def unit_removed(node, unit, reason):

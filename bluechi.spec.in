@@ -8,21 +8,30 @@
 %global coverage_flags -Dwith_coverage=true
 %endif
 
-Name:    bluechi
-Version: @VERSION@
-Release: @RELEASE@%{?dist}
-Summary: A systemd service controller for multi-nodes environments
-License: LGPL-2.1-or-later
-URL:     https://github.com/eclipse-bluechi/bluechi
-Source0: %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
-BuildRequires: gcc
+Name:		bluechi
+Version:	@VERSION@
+Release:	@RELEASE@%{?dist}
+Summary:	A systemd service controller for multi-nodes environments
+License:	LGPL-2.1-or-later AND CC0-1.0
+URL:		https://github.com/eclipse-bluechi/bluechi
+Source0:	%{url}/releases/download/v%{version}/%{name}-%{version}.tar.gz
+
+# Required to apply the patch
+BuildRequires:	git-core
+BuildRequires:	gcc
 # Meson needs to detect C++, because part of inih library (which we don't use) provides C++ functionality
-BuildRequires: gcc-c++
-BuildRequires: meson
-BuildRequires: systemd-devel
-BuildRequires: systemd-rpm-macros
-BuildRequires: golang-github-cpuguy83-md2man
+BuildRequires:	gcc-c++
+BuildRequires:	meson
+BuildRequires:	libselinux-devel
+BuildRequires:	systemd-devel
+BuildRequires:	systemd-rpm-macros
+BuildRequires:	golang-github-cpuguy83-md2man
+
+%if 0%{?with_coverage}
+BuildRequires:	lcov
+BuildRequires: sed
+%endif
 
 %description
 BlueChi is a systemd service controller for multi-nodes environements with a
@@ -30,19 +39,23 @@ predefined number of nodes and with a focus on highly regulated environment
 such as those requiring functional safety (for example in cars).
 
 
-%package controller
-Summary:  BlueChi service controller
-Requires: systemd
-Recommends: bluechi-selinux
+##########################
+### bluechi-controller ###
+##########################
+
+%package	controller
+Summary:	BlueChi service controller
+Requires:	systemd
+Recommends:	bluechi-selinux
 
 %if 0%{?with_coverage}
-Requires: bluechi-coverage = %{version}-%{release}
+Requires:	bluechi-coverage = %{version}-%{release}
 %endif
 
-Obsoletes: hirte < 0.6.0
-Provides: hirte = %{version}-%{release}
-Obsoletes: bluechi < 0.7.0
-Provides: bluechi = %{version}-%{release}
+Obsoletes:	hirte < 0.6.0
+Provides:	hirte = %{version}-%{release}
+Obsoletes:	bluechi < 0.7.0
+Provides:	bluechi = %{version}-%{release}
 
 %description controller
 BlueChi is a systemd service controller for multi-nodes environements with a
@@ -68,7 +81,7 @@ This package contains the controller service.
 %license LICENSE
 %{_libexecdir}/bluechi-controller
 %{_datadir}/dbus-1/interfaces/org.eclipse.bluechi.Job.xml
-%{_datadir}/dbus-1/interfaces/org.eclipse.bluechi.Manager.xml
+%{_datadir}/dbus-1/interfaces/org.eclipse.bluechi.Controller.xml
 %{_datadir}/dbus-1/interfaces/org.eclipse.bluechi.Monitor.xml
 %{_datadir}/dbus-1/interfaces/org.eclipse.bluechi.Node.xml
 %{_datadir}/dbus-1/system.d/org.eclipse.bluechi.conf
@@ -79,18 +92,27 @@ This package contains the controller service.
 %{_unitdir}/bluechi-controller.service
 %{_unitdir}/bluechi-controller.socket
 
+# Create UDS directory on install and setup tmpfile for reboots
+%dir %{_rundir}/bluechi
+%attr(700, root, root) %{_rundir}/bluechi
+%{_tmpfilesdir}/%{name}.conf
+
+
+#####################
+### bluechi-agent ###
+#####################
 
 %package agent
-Summary:  BlueChi service controller agent
-Requires: systemd
-Recommends: bluechi-selinux
+Summary:	BlueChi service controller agent
+Requires:	systemd
+Recommends:	bluechi-selinux
 
 %if 0%{?with_coverage}
-Requires: bluechi-coverage = %{version}-%{release}
+Requires:	bluechi-coverage = %{version}-%{release}
 %endif
 
-Obsoletes: hirte-agent < 0.6.0
-Provides: hirte-agent = %{version}-%{release}
+Obsoletes:	hirte-agent < 0.6.0
+Provides:	hirte-agent = %{version}-%{release}
 
 %description agent
 BlueChi is a systemd service controller for multi-nodes environements with a
@@ -130,23 +152,26 @@ This package contains the node agent.
 %{_userunitdir}/bluechi-dep@.service
 
 
+#######################
+### bluechi-selinux ###
+#######################
+
 %package selinux
-Summary:  BlueChi SELinux policy
-BuildRequires: checkpolicy
-BuildRequires: selinux-policy-devel
+Summary:	BlueChi SELinux policy
+BuildArch:	noarch
+BuildRequires:	checkpolicy
+BuildRequires:	selinux-policy-devel
 
 %if "%{_selinux_policy_version}" != ""
-Requires: selinux-policy >= %{_selinux_policy_version}
+Requires:	selinux-policy >= %{_selinux_policy_version}
 %endif
 
-Requires(post): policycoreutils
-Requires(post): policycoreutils-python-utils
-Requires(postun): policycoreutils-python-utils
+Requires(post):	policycoreutils
 
-Obsoletes: hirte-selinux < 0.6.0
-Provides: hirte-selinux = %{version}-%{release}
+Obsoletes:	hirte-selinux < 0.6.0
+Provides:	hirte-selinux = %{version}-%{release}
 
-%global selinuxtype	targeted
+%global selinuxtype targeted
 
 %description selinux
 SELinux policy associated with the bluechi and bluechi-agent daemons
@@ -159,37 +184,36 @@ SELinux policy associated with the bluechi and bluechi-agent daemons
 %post selinux
 # Remove hirte policy
 if [ $1 -eq 1 ]; then
-   semanage port -N -d -p udp 842 2>/dev/null || true
-   semanage port -N -d -p tcp 842 2>/dev/null || true
    semodule -N -X 200 -r hirte 2>/dev/null || true
 fi
 %selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/bluechi.pp.bz2
 restorecon -R %{_bindir}/bluechi* &> /dev/null || :
-semanage port -a -t bluechi_port_t -p udp 842 2>/dev/null || semanage port -m -t bluechi_port_t -p udp 842
-semanage port -a -t bluechi_port_t -p tcp 842 2>/dev/null || semanage port -m -t bluechi_port_t -p tcp 842
+restorecon -R %{_rundir}/bluechi/ &> /dev/null || :
+restorecon -R %{_localstatedir}/%{_rundir}/bluechi/ &> /dev/null || :
 
 %postun selinux
 if [ $1 -eq 0 ]; then
-   semanage port -d -p udp 842 2>/dev/null || true
-   semanage port -d -p tcp 842 2>/dev/null || true
    %selinux_modules_uninstall -s %{selinuxtype} bluechi
    restorecon -R %{_bindir}/bluechi* &> /dev/null || :
+   restorecon -R %{_rundir}/bluechi/ &> /dev/null || :
+   restorecon -R %{_localstatedir}/%{_rundir}/bluechi/ &> /dev/null || :
 fi
 
-%triggerpostun selinux -- hirte-selinux
-semanage port -a -t bluechi_port_t -p udp 842 2>/dev/null || semanage port -m -t bluechi_port_t -p udp 842
-semanage port -a -t bluechi_port_t -p tcp 842 2>/dev/null || semanage port -m -t bluechi_port_t -p tcp 842
+
+###################
+### bluechi-ctl ###
+###################
 
 %package ctl
-Summary:  BlueChi service controller command line tool
-Requires: %{name} = %{version}-%{release}
+Summary:	BlueChi service controller command line tool
+Requires:	%{name} = %{version}-%{release}
 
 %if 0%{?with_coverage}
-Requires: bluechi-coverage = %{version}-%{release}
+Requires:	bluechi-coverage = %{version}-%{release}
 %endif
 
-Obsoletes: hirte-ctl < 0.6.0
-Provides: hirte-ctl = %{version}-%{release}
+Obsoletes:	hirte-ctl < 0.6.0
+Provides:	hirte-ctl = %{version}-%{release}
 
 %description ctl
 BlueChi is a systemd service controller for multi-nodes environements with a
@@ -203,15 +227,48 @@ This package contains the service controller command line tool.
 %{_bindir}/bluechictl
 %{_mandir}/man1/bluechictl.*
 
+
+#########################
+### bluechi-is-online ###
+#########################
+
+%package is-online
+Summary:	Command line tool to monitor the connection state of BlueChi's components
+Recommends:	bluechi-controller = %{version}-%{release}
+Recommends:	bluechi-agent = %{version}-%{release}
+
+%if 0%{?with_coverage}
+Requires:	bluechi-coverage = %{version}-%{release}
+%endif
+
+%description is-online
+BlueChi is a systemd service controller for multi-nodes environements with a
+predefined number of nodes and with a focus on highly regulated environment
+such as those requiring functional safety (for example in cars).
+This package contains a command line tool for checking and monitoring the
+connection state of BlueChi's core components.
+
+%files is-online
+%doc README.md
+%license LICENSE
+%{_bindir}/bluechi-is-online
+%{_mandir}/man1/bluechi-is-online.*
+
+
+#######################
+### python3-bluechi ###
+#######################
+
 %if %{with_python}
 %package -n python3-bluechi
-Summary: Python bindings for BlueChi
-BuildRequires:  python3-devel
-BuildRequires:  python3-setuptools
-Requires:       python3-dasbus
+Summary:	Python bindings for BlueChi
+BuildArch:	noarch
+BuildRequires:	python3-devel
+BuildRequires:	python3-setuptools
+Requires:	python3-dasbus
 
-Obsoletes: python3-hirte < 0.6.0
-Provides: python3-hirte = %{version}-%{release}
+Obsoletes:	python3-hirte < 0.6.0
+Provides:	python3-hirte = %{version}-%{release}
 
 %description -n python3-bluechi
 bluechi is a python module to access the public D-Bus API of BlueChi project.
@@ -225,9 +282,14 @@ API description and manually written code to simplify recurring tasks.
 %{python3_sitelib}/bluechi/
 %endif
 
+
+########################
+### bluechi-coverage ###
+########################
+
 %if 0%{?with_coverage}
 %package coverage
-Summary: Code coverage files for BlueChi
+Summary:	Code coverage files for BlueChi
 
 %description coverage
 This package contains code coverage files created during the build. Those files
@@ -235,12 +297,16 @@ will be used during integration tests when creating code coverage report.
 
 %files coverage
 %license LICENSE
-%{_datadir}/bluechi-coverage/*.gcno
+%{_datadir}/bluechi-coverage/bin/*
+%{_datadir}/bluechi-coverage/*
 %dir %{_localstatedir}/tmp/bluechi-coverage/
 %endif
 
+
+
 %prep
-%autosetup
+%autosetup -S git_am
+
 
 %build
 %meson -Dapi_bus=system %{?coverage_flags}
@@ -252,10 +318,17 @@ pushd src/bindings/python
 popd
 %endif
 
+
 %install
 %meson_install
 
 %if 0%{?with_coverage}
+mkdir -p %{buildroot}/%{_datadir}/bluechi-coverage/bin
+cp tests/scripts/gather-code-coverage.sh %{buildroot}/%{_datadir}/bluechi-coverage/bin
+cp tests/scripts/setup-src-dir-for-coverage.sh %{buildroot}/%{_datadir}/bluechi-coverage/bin
+
+mkdir -p %{buildroot}/%{_datadir}/bluechi-coverage/unit-test-results
+
 mkdir -p %{buildroot}/%{_localstatedir}/tmp/bluechi-coverage/
 %endif
 
@@ -265,11 +338,105 @@ pushd src/bindings/python
 popd
 %endif
 
+
 %check
 %meson_test
 
+%if 0%{?with_coverage}
+# Generate code coverage report from unit tests execution
+build-scripts/generate-unit-tests-code-coverage.sh %{_vpath_builddir} %{buildroot}/%{_datadir}
+%endif
+
 
 %changelog
+* Wed Feb 26 2025 Michael Engel <mengel@redhat.com> - 0.10.0-1
+- Breaking change: ListUnits and ListUnitFiles return a dictionary with node name as key
+- Added new API: StartTransientUnit
+- Enabled per node configuration in bluechi-controller
+- Enabled setting a required SELinux context for nodes connecting via Unix Domain Socket
+- Added Allowed and RequiredSelinuxContext as per-node configuration option
+- Added libselinux-devel as a dependency
+- Added support for running TCP/IP and Unix Domain Sockets (via socket activation) in parallel
+- Added Unix Domain Socket support without systemd sock activation
+- Updated SELinux policy to work with Unix Domain Sockets
+- Fixed bluechi-is-online system and agent to not accept arguments
+- Fixed unterminated string initialization for hexchar function
+- Fixed overrunning log_level_to_string for invalid log levels
+- Updated the python bindings for BlueChi's D-Bus API
+- Added C and C++ examples using BlueChi's D-Bus API
+- Removed Vendor and Packager from RPM spec
+
+* Tue Nov 12 2024 Michael Engel <mengel@redhat.com> - 0.9.0-1
+- BlueChi's SELinux policy has been refined and changed from permissive to enforced
+- New package: bluechi-is-online
+- Added a configurable heartbeat and threshold from bluechi-controller to bluechi-agent
+- Added a configurable threshold in bluechi-controller to actively disconnect an unresponsive bluechi-agent
+- Added monotonic timestamp properties to D-Bus API
+- Added GetUnitFileState method to D-Bus API and is-enabled command to bluechictl
+- Added KillUnit method to D-Bus API and kill command to bluechictl
+- Added ResetFailed and ResetFailedUnit to D-Bus API and respective commands to bluechictl
+- Added ListUnitFiles to D-Bus API and list-unit-files command to bluechictl
+- Added GetDefaultTarget and SetDefaultTarget to D-Bus API and respective commands to bluechictl
+- Added specific usage functions for commands to bluechictl 
+- Changed the register call of bluechi-agent to be asynchronous
+- Fixed the order of disconnect and controller address changed on calling SwitchController
+- Fixed updating the displayed peer IP when a node changes connection state in bluechictl
+- Fixed determining the peer IP address of the agent
+- Improved debug logging in bluechi-agent, bluechi-controller and bluechictl
+- Updated the python bindings for BlueChi's D-Bus API
+
+* Mon Apr 29 2024 Michael Engel <mengel@redhat.com> - 0.8.0-1
+- Breaking change: Removed obsolete API method Ping
+- Fixed .conf suffix check for conf.d files
+- Fixed memory leak in bluechictl
+- Fixed memory leaks in bluechi-agent
+- Fixed bluechictl when fetching status of multiple services
+- Fixed segfault when calling set-loglevel API with invalid loglevel
+- Fix memory deallocation issue in node_method_set_log_level()
+- Cleanup controller when start fails to prevent memory leaks
+- Added watch option to bluechictl status
+- Changed output of bluechictl status from stderr to stdout
+- Implemented D-Bus API for cancelling a Job
+- Added IP to of registered nodes as D-Bus property and to the ListUnits API
+- Added D-Bus properties for LogLevel and LogTarget of bluechi-controller and bluechi-agent
+- Added D-Bus on bluechi-agent to switch the bluechi-controller
+- Refactored functions for loading the configuration
+- Improved the output of bluechictl list-units
+- Improved the formatted output of the dumped config of bluechi-controller and bluechi-agent on startup
+- bluechictl monitor flushes stdout for each iteration
+- Replaced the function for the D-Bus property of the node name by offsetof
+- Removed unused code bluechi-controller and libbluechi
+- BlueChi's SELinux policy has been extended by a tunable policy to dis-/allow any port
+- BlueChi's python bindings are now formatted and ordered via unified tooling
+- Updated the python bindings for BlueChi's D-Bus API
+
+* Wed Jan 17 2024 Michael Engel <mengel@redhat.com> - 0.7.0-1
+- Breaking change: Completed renaming of manager to controller in configuration, API, etc.
+- Breaking change: Removed D-Bus method Shutdown from controller and agent
+- Breaking change: Removed bluechictl monitor node-connection
+- Added watch option to bluechictl for bluechictl status
+- Added system status property on org.eclipse.bluechi.Manager
+- Introduced pre-shutdown hook to ensure final signals are emitted
+- Added flags to enable and disable commands in bluechictl
+- Refactored bluechictl and introduced command pattern
+- Added TCP KeepAlive options to configuration
+- Added IP_RECV_ERR option to configuration
+- Enable quicker tcp error notification by setting IP_RECV_ERR
+- Extended monitor API by adding and removing peers
+- Send monitor signals only to peer
+- Added log statements when sending monitor signals fail
+- Upgraded subproject hashmap.c to v0.7.0
+- Check for proxy service list being empty instead of NULL on shutdown
+- Fixed check that agent started successfully
+- Fixed memory leak when assembling monitoring signals
+- Added error log when at least one list units request fails
+- Integration tests are run with valgrind on testing farm
+- Integration tests produce a coverage report in GH workflow
+- Added more integration tests for new peer API, -c option and more
+- BlueChi logo has been added to the project
+- Added documentation about monitoring has been added
+- Added documentation about securint BlueChi with mTLS and double proxy
+
 * Mon Nov 13 2023 Michael Engel <mengel@redhat.com> - 0.6.0-1
 - Moved from containers to eclipse-bluechi organization
 - Renamed bluechi to bluechi-controller for binary, rpm and documentation

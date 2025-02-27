@@ -1,4 +1,8 @@
-/* SPDX-License-Identifier: LGPL-2.1-or-later */
+/*
+ * Copyright Contributors to the Eclipse BlueChi project
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
 #include <errno.h>
 #include <getopt.h>
 #include <stdio.h>
@@ -10,12 +14,14 @@
 #include "libbluechi/common/opt.h"
 #include "libbluechi/log/log.h"
 
-const struct option options[] = { { ARG_USER, no_argument, 0, ARG_USER_SHORT },
-                                  { ARG_HELP, no_argument, 0, ARG_HELP_SHORT },
-                                  { ARG_VERSION, no_argument, 0, ARG_VERSION_SHORT },
-                                  { NULL, 0, 0, '\0' } };
+const struct option options[] = {
+        { ARG_USER,    no_argument, 0, ARG_USER_SHORT    },
+        { ARG_HELP,    no_argument, 0, ARG_HELP_SHORT    },
+        { ARG_VERSION, no_argument, 0, ARG_VERSION_SHORT },
+        { NULL,        0,           0, '\0'              }
+};
 
-#define OPTIONS_STR ARG_HELP_SHORT_S ARG_USER_SHORT_S ARG_VERSION_SHORT_S
+#define GETOPT_OPTSTRING ARG_HELP_SHORT_S ARG_USER_SHORT_S ARG_VERSION_SHORT_S
 
 static const char *opt_node_unit = NULL;
 static const char *opt_operation = NULL;
@@ -69,7 +75,7 @@ int parse_node_unit_opt(const char *opt_node_unit, char **ret_node_name, char **
 
 static int get_opts(int argc, char *argv[]) {
         int opt = 0;
-        while ((opt = getopt_long(argc, argv, OPTIONS_STR, options, NULL)) != -1) {
+        while ((opt = getopt_long(argc, argv, GETOPT_OPTSTRING, options, NULL)) != -1) {
                 switch (opt) {
                 case ARG_HELP_SHORT:
                         usage(argv);

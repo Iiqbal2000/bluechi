@@ -1,6 +1,9 @@
+#
+# Copyright Contributors to the Eclipse BlueChi project
+#
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-want_man = get_option('man') == 'true'
+want_man = get_option('with_man_pages')
 md2man = find_program('go-md2man', required : false)
 if want_man and not md2man.found()
   message('go-md2man not found, man page generation disabled automatically')
@@ -12,6 +15,7 @@ man1 = [
   'bluechi-agent',
   'bluechictl',
   'bluechi-proxy',
+  'bluechi-is-online',
 ]
 
 man5 = [
@@ -19,8 +23,13 @@ man5 = [
     'bluechi-agent.conf',
 ]
 
+man8 = [
+    'bluechi-controller-selinux',
+    'bluechi-agent-selinux'
+]
+
 if want_man
-  foreach pair : [[man1, '1'], [man5, '5']]
+  foreach pair : [[man1, '1'], [man5, '5'], [man8, '8']]
     pages = pair[0]
     section = pair[1]
 

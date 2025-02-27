@@ -1,3 +1,6 @@
+#
+# Copyright Contributors to the Eclipse BlueChi project
+#
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import unittest
@@ -9,7 +12,6 @@ from bluechi.api import Agent
 
 
 class TestAgentIsConnected(unittest.TestCase):
-
     def test_agent_is_connected(self):
         agent = Agent()
         assert agent.status == "online"

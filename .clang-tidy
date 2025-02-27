@@ -2,6 +2,7 @@
 Checks: >
     *,
     -llvm-header-guard,
+    -llvm-include-order,
     -llvmlibc-restrict-system-libc-headers,
     -cert-err33-c,
     -cert-dcl37-c,
@@ -23,7 +24,13 @@ Checks: >
     -readability-function-cognitive-complexity,
     -modernize-macro-to-enum,
     -llvm-else-after-return,
-    -readability-else-after-return
+    -readability-else-after-return,
+    -misc-include-cleaner,
+    -bugprone-multi-level-implicit-pointer-conversion,
+    -cppcoreguidelines-macro-to-enum,
+    -cert-int09-c,
+    -readability-enum-initial-value,
+    -readability-math-missing-parentheses
 
 CheckOptions:
     - key: readability-function-cognitive-complexity.Threshold

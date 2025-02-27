@@ -1,3 +1,6 @@
+#
+# Copyright Contributors to the Eclipse BlueChi project
+#
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 import datetime
@@ -24,6 +27,8 @@ def model_to_data_dict(interfaces: List[Interface]) -> Dict[str, Any]:
             "signals": [],
             "properties": [],
         }
+
+        methods = []
         for method in iface.methods:
             data_method = {
                 "name": method.name,
@@ -42,8 +47,10 @@ def model_to_data_dict(interfaces: List[Interface]) -> Dict[str, Any]:
                 elif arg.direction == "out":
                     data_method["rets"].append(e)
 
-            data_interface["methods"].append(data_method)
+            methods.append(data_method)
+        data_interface["methods"] = sorted(methods, key=lambda item: item["name"])
 
+        signals = []
         for signal in iface.signals:
             data_signal = {
                 "name": signal.name,
@@ -58,8 +65,10 @@ def model_to_data_dict(interfaces: List[Interface]) -> Dict[str, Any]:
                 }
                 data_signal["args"].append(e)
 
-            data_interface["signals"].append(data_signal)
+            signals.append(data_signal)
+        data_interface["signals"] = sorted(signals, key=lambda item: item["name"])
 
+        props = []
         for prop in iface.properties:
             e = {
                 "name": prop.name,
@@ -69,11 +78,13 @@ def model_to_data_dict(interfaces: List[Interface]) -> Dict[str, Any]:
                 "access": prop.access.split("|"),
                 "emits_change": prop.emits_change,
             }
-            data_interface["properties"].append(e)
+            props.append(e)
+        data_interface["properties"] = sorted(props, key=lambda item: item["name"])
 
         data["interfaces"].append(data_interface)
 
     data["now"] = datetime.datetime.utcnow
+    data["interfaces"] = sorted(data["interfaces"], key=lambda item: item["name"])
     return data
 
 

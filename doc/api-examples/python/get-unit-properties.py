@@ -1,9 +1,14 @@
 #!/usr/bin/python3
+#
+# Copyright Contributors to the Eclipse BlueChi project
+#
 # SPDX-License-Identifier: MIT-0
 
 import sys
-from dasbus.typing import get_native
+
 import dasbus.connection
+from dasbus.typing import get_native
+
 bus = dasbus.connection.SystemMessageBus()
 
 if len(sys.argv) != 3:
@@ -13,8 +18,8 @@ if len(sys.argv) != 3:
 node_name = sys.argv[1]
 unit_name = sys.argv[2]
 
-manager = bus.get_proxy("org.eclipse.bluechi", "/org/eclipse/bluechi")
-node_path = manager.GetNode(node_name)
+controller = bus.get_proxy("org.eclipse.bluechi", "/org/eclipse/bluechi")
+node_path = controller.GetNode(node_name)
 node = bus.get_proxy("org.eclipse.bluechi", node_path)
 
 properties = node.GetUnitProperties(unit_name, "org.freedesktop.systemd1.Unit")

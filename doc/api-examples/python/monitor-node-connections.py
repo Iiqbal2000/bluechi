@@ -1,16 +1,19 @@
+#
+# Copyright Contributors to the Eclipse BlueChi project
+#
 # SPDX-License-Identifier: MIT-0
+
+from typing import Dict
 
 import dasbus.connection
 from dasbus.loop import EventLoop
 from dasbus.typing import Variant
-from typing import Dict
-
 
 loop = EventLoop()
 bus = dasbus.connection.SystemMessageBus()
 
-manager = bus.get_proxy("org.eclipse.bluechi", "/org/eclipse/bluechi")
-nodes = manager.ListNodes()
+controller = bus.get_proxy("org.eclipse.bluechi", "/org/eclipse/bluechi")
+nodes = controller.ListNodes()
 cached_nodes = []
 for n in nodes:
     # node: [name, path, status]
@@ -24,6 +27,7 @@ for n in nodes:
         ) -> None:
             con_status = changed_props["Status"].get_string()
             print(f"Node {node_name}: {con_status}")
+
         return on_connection_status_changed
 
     node.PropertiesChanged.connect(changed_wrapper(n[0]))
